@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arquitecto por un Día</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="intro" class="screen active">
+    <div class="intro-wrap">
+      <div class="intro-header">
+        <div class="intro-eyebrow">Matemática Aplicada · Taller de Diseño · Carrera de Arquitectura</div>
+        <h1 class="intro-title">Arquitecto<br><span>por un Día</span></h1>
+      </div>
+      <div class="intro-body">
+
+        <div class="brief-box">
+          <p><strong>Encargo del proyecto:</strong> Un estudio de arquitectura necesita diseñar un <strong>pabellón público con cubierta curva</strong> para un parque urbano. El desafío es encontrar una solución <strong>matemáticamente válida y arquitectónicamente viable</strong>: la cubierta debe proteger del sol y la lluvia, permitir que las personas pasen cómodamente y utilizar los materiales de forma eficiente.</p>
+        </div>
+
+        <div class="constraints-title">Restricciones del proyecto</div>
+        <div class="constraints-grid">
+          <div class="constraint-item">
+            <span class="constraint-val">≥ 3 m</span>
+            <div class="constraint-lbl">Altura mínima en el centro</div>
+          </div>
+          <div class="constraint-item">
+            <span class="constraint-val">≤ 9 m</span>
+            <div class="constraint-lbl">Altura máxima permitida</div>
+          </div>
+          <div class="constraint-item">
+            <span class="constraint-val">≥ 8 m</span>
+            <div class="constraint-lbl">Ancho mínimo de cubierta</div>
+          </div>
+          <div class="constraint-item">
+            <span class="constraint-val">≥ 20 m²</span>
+            <div class="constraint-lbl">Superficie proyectada requerida</div>
+          </div>
+          <div class="constraint-item">
+            <span class="constraint-val">≥ 4°</span>
+            <div class="constraint-lbl">Pendiente mínima de drenaje</div>
+          </div>
+          <div class="constraint-item">
+            <span class="constraint-val">≤ 0.75</span>
+            <div class="constraint-lbl">Índice de impacto ambiental</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label class="form-label">Nombre del grupo</label>
+          <input class="form-input" id="inp-grupo" placeholder="Ej: Grupo Fibonacci" />
+        </div>
+        <div class="form-row" style="margin-bottom:20px">
+          <label class="form-label">Integrantes (opcional)</label>
+          <input class="form-input" id="inp-integrantes" placeholder="Ej: García, López, Martínez" />
+        </div>
+        <button class="btn-start" id="btn-start" onclick="startApp()">Comenzar diseño →</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="app" class="screen" style="flex-direction:column; min-height:100vh;">
+
+    <div class="topbar">
+      <div class="topbar-logo">APD <span>/ PABELLÓN PÚBLICO</span></div>
+      <div class="topbar-group">
+        <span id="lbl-grupo">—</span>
+      </div>
+      <div class="topbar-right">
+        <div class="score-chip">
+          <span class="score-chip-val" id="total-chip">0</span>
+          <span class="score-chip-lbl">/ 500 pts</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="setTab(0)">Diseño</button>
+      <button class="tab" onclick="setTab(1)">Derivadas</button>
+      <button class="tab" onclick="setTab(2)">Integrales</button>
+      <button class="tab" onclick="setTab(3)">Simulación</button>
+      <button class="tab" onclick="setTab(4)">Evaluación</button>
+      <button class="tab" onclick="setTab(5)">Ranking</button>
+    </div>
+
+    <div class="main-content">
+
+      <div class="panel active" id="panel-0">
+        <div class="constraint-status" id="constraint-status"></div>
+        <div class="grid-2">
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div class="card">
+              <div class="card-head">
+                <span class="card-title">Función cuadrática</span>
+                <span class="card-badge" style="background:var(--petrol-faint);color:var(--petrol);border:1px solid var(--petrol-light)" id="formula-badge">y = ax² + bx + c</span>
+              </div>
+              <div class="edu-box" style="margin-bottom:14px;">
+                La cubierta sigue la ley <span class="edu-formula">y = ax² + bx + c</span>. El coeficiente <b>a</b> define la curvatura (debe ser negativo para que la cubierta sea convexa). <b>b</b> controla el sesgo lateral y <b>c</b> la altura de la clave.
+              </div>
+              <div class="slider-section">
+                <div class="slider-row">
+                  <span class="slider-key">a</span>
+                  <input type="range" id="sl-a" min="-2.5" max="-0.05" step="0.05" value="-0.5" oninput="update()">
+                  <span class="slider-val-box" id="val-a">-0.50</span>
+                </div>
+                <div class="slider-row">
+                  <span class="slider-key">b</span>
+                  <input type="range" id="sl-b" min="-4" max="4" step="0.1" value="0" oninput="update()">
+                  <span class="slider-val-box" id="val-b">0.00</span>
+                </div>
+                <div class="slider-row">
+                  <span class="slider-key">c</span>
+                  <input type="range" id="sl-c" min="1" max="10" step="0.1" value="6" oninput="update()">
+                  <span class="slider-val-box" id="val-c">6.00</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><span class="card-title">Material de cubierta</span></div>
+              <div class="mat-grid" id="mat-grid"></div>
+            </div>
+
+            <div class="grid-3">
+              <div class="metric" id="m-hmax-c"><div class="metric-val" id="m-hmax">—</div><div class="metric-lbl">Altura máx. (m)</div></div>
+              <div class="metric" id="m-ancho-c"><div class="metric-val" id="m-ancho">—</div><div class="metric-lbl">Ancho (m)</div></div>
+              <div class="metric"><div class="metric-val" id="m-vx">—</div><div class="metric-lbl">Vértice (x)</div></div>
+              <div class="metric" id="m-area-c"><div class="metric-val" id="m-area">—</div><div class="metric-lbl">Área (m²)</div></div>
+              <div class="metric"><div class="metric-val" id="m-pmax">—</div><div class="metric-lbl">Pend. máx. (°)</div></div>
+              <div class="metric" id="m-eco-c"><div class="metric-val" id="m-eco">—</div><div class="metric-lbl">Impacto amb.</div></div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div class="card" style="padding:12px;">
+              <div class="card-head" style="margin-bottom:8px;"><span class="card-title">Gráfico matemático — parábola en ℝ²</span></div>
+              <div class="canvas-wrap" style="height:220px;">
+                <canvas id="cv-math" width="700" height="220"></canvas>
+              </div>
+            </div>
+            <div class="card" style="padding:12px;">
+              <div class="card-head" style="margin-bottom:8px;"><span class="card-title">Vista arquitectónica — pabellón con escala humana</span></div>
+              <div class="canvas-wrap" style="height:220px;">
+                <canvas id="cv-arch" width="700" height="220"></canvas>
+              </div>
+            </div>
+            <button class="btn-3d" id="btn-walk" onclick="enter3D()">
+              🚶‍♂️ Recorrer Pabellón en 3D
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-1">
+        <div class="edu-box">
+          La <b>derivada f'(x) = 2ax + b</b> describe la pendiente de la cubierta en cada punto. En arquitectura, la pendiente determina si el agua escurrirá correctamente o se acumulará. Una pendiente mayor a <b>4°</b> garantiza drenaje eficiente.
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><span class="card-title">Análisis de pendiente</span></div>
+            <div class="slider-row" style="margin-bottom:16px;">
+              <span class="slider-key" style="font-size:10px;width:auto;color:var(--muted)">x =</span>
+              <input type="range" id="sl-px" min="0" max="100" step="1" value="50" oninput="updateDeriv()">
+              <span class="slider-val-box" id="val-px">0.00</span>
+            </div>
+            <div id="deriv-info"></div>
+            <div class="sector-grid" style="margin-top:14px;" id="sector-grid"></div>
+          </div>
+          <div class="card" style="padding:12px;">
+            <div class="card-head" style="margin-bottom:8px;"><span class="card-title">Curva con tangente deslizante</span></div>
+            <div class="canvas-wrap" style="height:280px;">
+              <canvas id="cv-deriv" width="700" height="280"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-2">
+        <div class="edu-box">
+          La <b>integral definida ∫f(x)dx</b> calcula el área bajo la curva, que representa la superficie proyectada de la cubierta. Esta superficie determina la cantidad de material necesario, el costo de construcción y el impacto ambiental del proyecto.
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><span class="card-title">Estimación de materiales</span></div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div class="metric"><div class="metric-val" id="int-area">—</div><div class="metric-lbl">Área integral (m²)</div></div>
+              <div class="metric"><div class="metric-val" id="int-sup">—</div><div class="metric-lbl">Superficie construida con pendiente (m²)</div></div>
+              <div class="metric"><div class="metric-val" id="int-costo">—</div><div class="metric-lbl">Costo estimado de material (USD)</div></div>
+              <div class="metric" id="int-eco-c"><div class="metric-val" id="int-eco">—</div><div class="metric-lbl">Emisiones estimadas (ton CO₂)</div></div>
+            </div>
+            <div class="edu-box" style="margin-top:14px;">
+              Cada rectángulo en el gráfico representa una franja de material. La suma de todos (rectangulares de Riemann) aproxima la integral real. A mayor área → más material → mayor costo e impacto ambiental.
+            </div>
+          </div>
+          
+          <div class="card" style="padding:12px;">
+            <div class="card-head" style="margin-bottom:8px;"><span class="card-title">Área bajo la curva — sumas de Riemann</span></div>
+            <div class="canvas-wrap" style="height:280px;">
+              <canvas id="cv-integ" width="700" height="280"></canvas>
+            </div>
+            <div style="margin-top: 16px; border-top: 1px solid rgba(30,80,120,0.1); padding-top: 14px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <span style="font-weight:600; color:var(--petrol); font-size:13px;">Ajuste dinámico de rectángulos</span>
+                <span id="riemann-qty" style="font-family:var(--font-mono); background:var(--petrol-faint); color:var(--petrol); padding:2px 8px; border-radius:4px; font-size:12px; font-weight:bold;">n = 4</span>
+              </div>
+              <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+                <span style="font-size:11px; color:var(--muted);">Visualización </span>
+                <input type="range" id="sl-riemann" min="4" max="100" step="1" value="4" oninput="onChangeRiemann(this.value)" style="flex:1;">
+                <span style="font-size:11px; color:var(--muted);">Paso al límite (dx → 0)</span>
+              </div>
+              <div id="riemann-explanation" class="edu-box" style="font-size:12px; line-height:1.45; border-left:3px solid var(--petrol); margin-top:10px; background:rgba(30,80,120,0.02);">
+                Mové el slider para ver cómo cambia la aproximación.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-3">
+        <div class="card" style="padding:12px;">
+          <div class="card-head" style="margin-bottom:8px;"><span class="card-title">Simulación de lluvia y drenaje</span></div>
+          <div class="canvas-wrap" style="height:300px;">
+            <canvas id="cv-rain" width="800" height="300"></canvas>
+          </div>
+        </div>
+        <div class="rain-stats">
+          <div class="metric"><div class="metric-val" id="rain-pend">—</div><div class="metric-lbl">Pendiente promedio</div></div>
+          <div class="metric"><div class="metric-val" id="rain-efic">—</div><div class="metric-lbl">Eficiencia de drenaje</div></div>
+          <div class="metric" style="display:flex;flex-direction:column;justify-content:center;">
+            <div id="rain-badge">—</div>
+            <div class="metric-lbl" style="margin-top:6px;">Estado del drenaje</div>
+          </div>
+        </div>
+        <div class="edu-box" id="rain-edu">La derivada f'(x) en cada punto determina la velocidad de escurrimiento del agua. Pendientes mayores a 4° garantizan drenaje eficiente; entre 2° y 4°, el drenaje es moderado; por debajo de 2° hay riesgo de acumulación y filtraciones.</div>
+      </div>
+
+      <div class="panel" id="panel-4">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><span class="card-title">Puntaje por categoría</span></div>
+            <div class="score-rows" id="score-rows"></div>
+            <div class="total-display">
+              <span class="total-num" id="total-big">—</span>
+              <span class="total-denom">/ 500</span>
+              <span class="total-lbl">puntos totales</span>
+            </div>
+            <div style="margin-top:16px; text-align:center;">
+              <button class="btn-register" onclick="registrarDiseño()">Registrar este diseño →</button>
+            </div>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom:14px;">
+              <div class="card-head"><span class="card-title">Evaluación arquitectónica</span></div>
+              <div class="eval-grid" id="eval-grid"></div>
+            </div>
+            <div class="edu-box">
+              La evaluación arquitectónica va más allá de la optimización matemática. Una parábola muy plana puede ser eficiente en material pero inhabitable. Una excesivamente alta puede ser inestable o poco práctica. El buen diseño equilibra todas las variables.
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 14px;">
+          <div class="card-head">
+            <span class="card-title">Módulo de optimización final — comparación con el óptimo teórico</span>
+            <span class="card-badge" style="background:#FFFBEB;color:#92400E;border:1px solid #D4AF37">Fuerza bruta · ℝ²</span>
+          </div>
+          <div class="edu-box" style="margin-bottom:14px;">
+            El sistema explora <b>miles de combinaciones (a, b, c)</b> por fuerza bruta para encontrar el diseño que maximiza el área bajo la curva, exigiendo que el <b>gálibo sea mayor a 1.75 m</b> en toda la zona transitable y que la <b>pendiente en los extremos garantice escurrimiento</b> según el material elegido.
+          </div>
+          <button class="btn-optim" onclick="runOptimization()">Calcular óptimo y comparar mi diseño →</button>
+          <div id="optim-results" style="margin-top:16px;"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-5">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Tabla de clasificación</span>
+            <span class="card-badge" style="background:var(--surface2);border:1px solid var(--border);color:var(--muted)" id="rank-count">0 grupos</span>
+          </div>
+          <table class="rank-table">
+            <thead>
+              <tr>
+                <th>Pos.</th>
+                <th>Grupo</th>
+                <th>Puntaje</th>
+                <th>Material</th>
+                <th>Área (m²)</th>
+                <th>Función</th>
+                <th>Viabilidad</th>
+              </tr>
+            </thead>
+            <tbody id="rank-body">
+              <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Aún no hay diseños registrados.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="edu-box">
+          El ranking muestra cómo cada grupo equilibró las variables del proyecto. Un puntaje alto requiere habitabilidad, eficiencia de materiales, sustentabilidad y buen drenaje simultáneamente — igual que en el ejercicio profesional real.
+        </div>
+      </div>
+
+    </div></div><div id="scene-3d-wrap">
+    <button class="exit-3d-btn" onclick="exit3D()">← Salir del modo 3D</button>
+
+    <div class="hud-3d">
+      <div class="hud-3d-row"><span class="hud-3d-lbl">Posición X</span><span class="hud-3d-val" id="hud-x">0.0 m</span></div>
+      <div class="hud-3d-row"><span class="hud-3d-lbl">Altura del techo</span><span class="hud-3d-val" id="hud-roof">— m</span></div>
+      <div class="hud-3d-row"><span class="hud-3d-lbl">Gálibo libre</span><span class="hud-3d-val" id="hud-clear">— m</span></div>
+      <div class="hud-3d-row"><span class="hud-3d-lbl">Función</span><span class="hud-3d-val" id="hud-fn" style="font-size:10px">—</span></div>
+    </div>
+
+    <div class="hud-legend">
+      <span><span class="legend-dot" style="background:#1A7F5A"></span>Drena bien</span>
+      <span><span class="legend-dot" style="background:#E74C3C"></span>Estancamiento</span>
+    </div>
+
+    <div class="controls-hint-3d">W A S D / ← ↑ → ↓ para mover · arrastrar mouse para mirar</div>
+
+    <div id="clearance-warning">
+      <div class="warning-banner">⚠ Área Inhabitable<small>Gálibo insuficiente — altura del techo menor a 1.75 m</small></div>
+    </div>
+
+    <a-scene id="aframe-scene" embedded vr-mode-ui="enabled: false" loading-screen="enabled: false">
+      <a-assets></a-assets>
+
+      <a-entity id="rig" position="0 1.75 12" movement-controls="speed:0.18; fly:false" clearance-checker>
+        <a-camera id="cam-3d" look-controls wasd-controls="acceleration:40" position="0 0 0"></a-camera>
+      </a-entity>
+
+      <a-plane position="0 0 0" rotation="-90 0 0" width="40" height="40"
+               material="color:#D8DEE4; roughness:0.9; metalness:0.05"
+               shadow="receive:true"></a-plane>
+
+      <a-entity id="floor-grid"></a-entity>
+
+      <a-entity id="roof-container"></a-entity>
+
+      <a-entity id="columns-container"></a-entity>
+
+      <a-entity id="people-container"></a-entity>
+
+      <a-entity light="type:ambient; color:#BFD9E8; intensity:0.55"></a-entity>
+      <a-entity light="type:directional; color:#FFFFFF; intensity:0.65" position="5 10 5"></a-entity>
+      <a-sky color="#BFDCEE"></a-sky>
+    </a-scene>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
