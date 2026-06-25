@@ -1175,6 +1175,9 @@ async function fetchRanking() {
       .order('puntaje', { ascending: false })
       .limit(10);
 
+    console.log("DATA:", data);
+    console.log("ERROR:", error);
+
     if (error) throw error;
 
     if (countBadge) {
