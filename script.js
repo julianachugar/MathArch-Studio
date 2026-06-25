@@ -1,4 +1,8 @@
+// Configuración  de Supabase
+const SUPABASE_URL = "https://qllrqzmxhubmuzradbrr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_4HWOpoYASZDSwvoGYsUwvw_G--CUWmz";
 
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ═══════════════════════════════════════════════════════
    DATOS Y ESTADO — MATERIALES CON CRITERIO TÉCNICO Y 3D
@@ -36,7 +40,7 @@ const MATS = [
   },
   {
     id: 'acero',
-    name: 'Acero cortén',
+    name: 'Acero',
     cost: 680,
     eco: 0.60,
     minSlope: 5,
@@ -148,7 +152,9 @@ function setTab(i) {
   if(i===2) drawInteg();
   if(i===3) { initRain(); drawRain(); }
   if(i===4) renderEvalGrid();
+  if(i===5) fetchRanking();
 }
+
 
 /* ═══════════════════════════════════════════════════════
    MATERIAL GRID
@@ -231,8 +237,16 @@ function renderConstraints(hmax, ancho, area, slope, eco) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   DIBUJO — MATEMÁTICO
+   DIBUJO — MATEMÁTICO (ahora también expone el transform
+   de pantalla↔matemática para que los puntos sean draggables)
 ═══════════════════════════════════════════════════════ */
+
+// Guarda el último mapeo pixel↔coordenada-matemática usado al dibujar cv-math.
+// Los manejadores de mouse (mousedown/mousemove) lo reutilizan para saber
+// dónde están los puntos de control en pantalla y a qué (x,y) matemático
+// corresponde la posición actual del mouse. Se recalcula en cada drawMath().
+let mathTransform = null;
+
 function drawMath(x0,x1,vx,vy) {
   const cv=$('cv-math'), ctx=cv.getContext('2d');
   const W=cv.width, H=cv.height, PAD=36;
@@ -240,10 +254,25 @@ function drawMath(x0,x1,vx,vy) {
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle='#F7F9FC'; ctx.fillRect(0,0,W,H);
 
+  // DEFINIMOS UN RANGO FIJO PARA EL GRÁFICO (Ej: de -10 a 10 metros en el eje X)
+  const xMinFijo = -10;
+  const xMaxFijo = 10;
+
   const yMin = Math.min(0, f(x0), f(x1))-0.5;
   const yMax = Math.max(vy,0)+0.8;
-  const tX = x=>(x-x0)/(x1-x0)*(W-2*PAD)+PAD;
+  
+  // Modificamos las funciones de transformación para usar la escala estática
+  const tX = x=>(x-xMinFijo)/(xMaxFijo-xMinFijo)*(W-2*PAD)+PAD;
   const tY = y=>H-PAD-(y-yMin)/(yMax-yMin)*(H-2*PAD);
+
+  mathTransform = {
+    x0, x1, yMin, yMax, W, H, PAD,
+    tX, tY,
+    // La conversión inversa del mouse también debe respetar la escala fija
+    invX: px => xMinFijo + (px-PAD)/(W-2*PAD)*(xMaxFijo-xMinFijo),
+    invY: py => yMin + (H-PAD-py)/(H-2*PAD)*(yMax-yMin),
+  };
+
 
   // grid
   ctx.strokeStyle='rgba(30,80,120,0.07)'; ctx.lineWidth=1;
@@ -295,11 +324,30 @@ function drawMath(x0,x1,vx,vy) {
   }
   ctx.stroke();
 
-  // vertex
-  ctx.fillStyle='#1A5276';
-  ctx.beginPath(); ctx.arc(tX(vx),tY(vy),5,0,2*Math.PI); ctx.fill();
+  // ── Puntos de control draggables: raíz izquierda y raíz derecha ──
+  // Se dibujan ANTES del vértice para que el vértice quede "por encima"
+  // visualmente si llegaran a superponerse en parábolas muy angostas.
+  const rootStyle = (isHover) => {
+    ctx.fillStyle = isHover ? '#E74C3C' : '#B03A2E';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+  };
+  [{x:x0, key:'root0'}, {x:x1, key:'root1'}].forEach(r => {
+    const isHover = dragState.hoverPoint === r.key || dragState.activePoint === r.key;
+    rootStyle(isHover);
+    ctx.beginPath(); ctx.arc(tX(r.x), tY(0), isHover?7:5.5, 0, 2*Math.PI); ctx.fill(); ctx.stroke();
+  });
+  ctx.fillStyle='rgba(176,58,46,0.7)'; ctx.font='9px Space Mono,monospace'; ctx.textAlign='center';
+  ctx.fillText(`raíz`, tX(x0), tY(0)+18);
+  ctx.fillText(`raíz`, tX(x1), tY(0)+18);
+
+  // ── Punto de control draggable: vértice ──
+  const vertexHover = dragState.hoverPoint === 'vertex' || dragState.activePoint === 'vertex';
+  ctx.fillStyle = vertexHover ? '#2E86AB' : '#1A5276';
+  ctx.beginPath(); ctx.arc(tX(vx),tY(vy), vertexHover?8:6, 0,2*Math.PI); ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
   ctx.fillStyle='rgba(26,82,118,0.6)'; ctx.font='10px Space Mono,monospace'; ctx.textAlign='left';
-  ctx.fillText(`V(${fmt(vx,1)}, ${fmt(vy,1)})`, tX(vx)+8, tY(vy)-4);
+  ctx.fillText(`V(${fmt(vx,1)}, ${fmt(vy,1)})`, tX(vx)+10, tY(vy)-6);
 
   // axis labels
   ctx.fillStyle='rgba(30,80,120,0.4)'; ctx.font='10px Space Mono,monospace';
@@ -307,9 +355,201 @@ function drawMath(x0,x1,vx,vy) {
   ctx.textAlign='right'; ctx.fillText('x', W-PAD+14, tY(0)+4);
 }
 
+
 /* ═══════════════════════════════════════════════════════
-   DIBUJO — ARQUITECTÓNICO
+   PUNTOS DE CONTROL DRAGGABLES SOBRE cv-math
+   ───────────────────────────────────────────────────────
+   Permite arrastrar con el mouse: el vértice (V) y las dos raíces.
+   Cada arrastre recalcula a, b, c y dispara el mismo update() que
+   usan los sliders, así que TODO lo demás (canvas 3D, scores,
+   restricciones, etc.) se sigue refrescando exactamente igual.
+
+   Mapeo matemático usado al arrastrar:
+   - Vértice (vx, vy):  dado a fijo,  b = -2*a*vx   y   c = vy - a*vx²
+                        (se despeja de vx=-b/2a y vy=f(vx))
+   - Raíz x0 o x1:      dado a fijo y la otra raíz fija, la parábola
+                        queda definida por sus dos raíces (xr1, xr2):
+                        f(x) = a(x - xr1)(x - xr2)  →  se expande para
+                        obtener b y c en función de a, xr1, xr2.
 ═══════════════════════════════════════════════════════ */
+const HIT_RADIUS = 12; // px de tolerancia para "agarrar" un punto con el mouse
+
+let dragState = {
+  activePoint: null,   // 'vertex' | 'root0' | 'root1' | null mientras se arrastra
+  hoverPoint: null,    // igual, pero solo para resaltar al pasar el mouse (sin click)
+  fixedRoot: null,      // al arrastrar una raíz, guardamos la OTRA raíz para no moverla
+};
+
+/**
+ * Convierte coordenadas de mouse (relativas al viewport) a coordenadas
+ * internas del canvas, considerando que el canvas se escala con CSS
+ * (width:100% en el wrapper) pero su resolución interna es fija (700x220).
+ */
+function getCanvasCoords(evt, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    px: (evt.clientX - rect.left) * scaleX,
+    py: (evt.clientY - rect.top) * scaleY,
+  };
+}
+
+/**
+ * Determina si (px,py) está suficientemente cerca de alguno de los
+ * 3 puntos de control actuales (vértice, raíz0, raíz1) y devuelve
+ * su identificador, o null si no hay match.
+ */
+function hitTestControlPoints(px, py) {
+  if (!mathTransform) return null;
+  const {tX, tY} = mathTransform;
+  const vx = getVx(), vy = f(vx);
+  const {x0, x1} = getRange();
+
+  const candidates = [
+    {key:'vertex', sx: tX(vx), sy: tY(vy)},
+    {key:'root0',  sx: tX(x0), sy: tY(0)},
+    {key:'root1',  sx: tX(x1), sy: tY(0)},
+  ];
+  for (const c of candidates) {
+    const d = Math.hypot(px - c.sx, py - c.sy);
+    if (d <= HIT_RADIUS) return c.key;
+  }
+  return null;
+}
+
+/**
+ * Aplica nuevos coeficientes (a,b,c) al estado, los clampea a los
+ * rangos de los sliders (para no generar geometrías degeneradas o
+ * fuera del dominio pedagógico), sincroniza sliders + inputs numéricos,
+ * y llama a update() para refrescar TODA la app (igual que un slider).
+ */
+function applyCoeffs(a, b, c) {
+  const slA = $('sl-a'), slB = $('sl-b'), slC = $('sl-c');
+  a = Math.min(parseFloat(slA.max), Math.max(parseFloat(slA.min), a));
+  b = Math.min(parseFloat(slB.max), Math.max(parseFloat(slB.min), b));
+  c = Math.min(parseFloat(slC.max), Math.max(parseFloat(slC.min), c));
+
+  slA.value = a; slB.value = b; slC.value = c;
+  update(); // S.a/b/c, val-a/b/c y todos los gráficos se actualizan acá adentro
+}
+
+/**
+ * Arrastre del VÉRTICE: mantiene 'a' constante (no cambiamos la
+ * curvatura al mover el vértice) y resuelve b, c a partir de la
+ * nueva posición (vx, vy) deseada.
+ *   vx = -b/(2a)  →  b = -2*a*vx
+ *   vy = a*vx² + b*vx + c  →  c = vy - a*vx² - b*vx
+ */
+function dragVertex(mathX, mathY) {
+  const a = S.a; // curvatura fija mientras se arrastra el vértice
+  // vy no puede ser negativo (no tiene sentido arquitectónico una cubierta bajo el piso)
+  const vy = Math.max(0.1, mathY);
+  const vx = mathX;
+  const b = -2 * a * vx;
+  const c = vy - a*vx*vx - b*vx;
+  applyCoeffs(a, b, c);
+}
+
+/**
+ * Arrastre de una RAÍZ: mantiene 'a' constante y la OTRA raíz fija
+ * (guardada en dragState.fixedRoot al iniciar el drag). Reconstruye
+ * b y c a partir de las dos raíces, usando la forma factorizada:
+ *   f(x) = a(x - r1)(x - r2) = a*x² - a*(r1+r2)*x + a*r1*r2
+ *   →  b = -a*(r1+r2)     c = a*r1*r2
+ */
+function dragRoot(movingRootX) {
+  const a = S.a;
+  const fixed = dragState.fixedRoot;
+  const r1 = movingRootX, r2 = fixed;
+  // evita que las dos raíces colapsen en el mismo punto (ancho → 0)
+  if (Math.abs(r1 - r2) < 0.5) return;
+  const b = -a*(r1+r2);
+  const c = a*r1*r2;
+  applyCoeffs(a, b, c);
+}
+
+/**
+ * Actualiza a/b/c cuando el usuario edita directamente el cuadro
+ * numérico (en vez de mover el slider o arrastrar el canvas).
+ * Conecta con onchange="updateFromTextInput('a', this.value)" en el HTML.
+ */
+function updateFromTextInput(coef, rawValue) {
+  const val = parseFloat(rawValue);
+  if (isNaN(val)) { update(); return; } // valor inválido → simplemente re-sincroniza con el estado actual
+  if (coef === 'a') applyCoeffs(val, S.b, S.c);
+  if (coef === 'b') applyCoeffs(S.a, val, S.c);
+  if (coef === 'c') applyCoeffs(S.a, S.b, val);
+}
+
+/**
+ * Inicializa los listeners de mouse sobre cv-math. Se llama una sola
+ * vez al cargar la app (al final del script). Como el canvas se vuelve
+ * a dibujar constantemente, los listeners no se reinyectan: solo leen
+ * el `mathTransform` global más reciente en cada evento.
+ */
+function initMathCanvasDrag() {
+  const cv = $('cv-math');
+  if (!cv) return;
+
+  cv.addEventListener('mousedown', (evt) => {
+    const {px, py} = getCanvasCoords(evt, cv);
+    const hit = hitTestControlPoints(px, py);
+    if (!hit) return;
+    dragState.activePoint = hit;
+    cv.classList.add('dragging');
+
+    // si empieza a arrastrar una raíz, fijamos la otra para no moverla
+    if (hit === 'root0' || hit === 'root1') {
+      const {x0, x1} = getRange();
+      dragState.fixedRoot = (hit === 'root0') ? x1 : x0;
+    }
+    evt.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (evt) => {
+    if (!cv || !mathTransform) return;
+    const {px, py} = getCanvasCoords(evt, cv);
+
+    if (!dragState.activePoint) {
+      // sin drag activo: solo actualizamos el hover (para cursor + resaltado visual)
+      const hit = hitTestControlPoints(px, py);
+      if (hit !== dragState.hoverPoint) {
+        dragState.hoverPoint = hit;
+        cv.classList.toggle('draggable-hover', !!hit);
+        // redibuja solo para mostrar el resaltado de hover (sin tocar S ni recalcular nada más)
+        const {x0:hx0, x1:hx1} = getRange();
+        drawMath(hx0, hx1, getVx(), f(getVx()));
+      }
+      return;
+    }
+
+    // hay un punto siendo arrastrado: convertimos pixel → coordenada matemática
+    const mathX = mathTransform.invX(px);
+    const mathY = mathTransform.invY(py);
+
+    if (dragState.activePoint === 'vertex') dragVertex(mathX, mathY);
+    else dragRoot(mathX); // root0 o root1: la posición X del mouse es la nueva raíz
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (dragState.activePoint) {
+      dragState.activePoint = null;
+      dragState.fixedRoot = null;
+      cv.classList.remove('dragging');
+    }
+  });
+
+  // si el mouse sale del canvas sin soltar el botón, quitamos el hover visual
+  cv.addEventListener('mouseleave', () => {
+    if (!dragState.activePoint && dragState.hoverPoint) {
+      dragState.hoverPoint = null;
+      cv.classList.remove('draggable-hover');
+    }
+  });
+}
+
+
 function drawArch(x0,x1,vx,vy) {
   const cv=$('cv-arch'), ctx=cv.getContext('2d');
   const W=cv.width, H=cv.height;
@@ -324,8 +564,13 @@ function drawArch(x0,x1,vx,vy) {
   sky.addColorStop(0,'#D6EAF8'); sky.addColorStop(1,'#EEF3F8');
   ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*0.65);
 
+  const terrenoMin = -12.5;
+  const terrenoMax = 12.5;
+
   const maxH=Math.max(vy,7.0);
-  const tX=x=>PAD_L+(x-x0)/(x1-x0)*DW;
+  
+  // Transformamos las coordenadas basándonos en el terreno fijo
+  const tX=x=>PAD_L+(x-terrenoMin)/(terrenoMax-terrenoMin)*DW;
   const tY=y=>H-PAD_B-(Math.max(0,y)/maxH)*DH;
   const groundY=H-PAD_B;
 
@@ -652,13 +897,13 @@ function updateIntegText(n, error) {
   if(!box) return;
 
   if (n <= 8) {
-    box.innerHTML = `💡 <b>Pocos rectángulos (n = ${n}):</b> Fijate cómo quedan "huecos" vacíos o esquinas que sobresalen de la curva. El ancho de cada barra ($dx$) es muy grande, por eso el error es del <b>${error}%</b>. Es una aproximación muy grosera.`;
+    box.innerHTML = ` <b>Pocos rectángulos (n = ${n}):</b> Quedan "huecos" vacíos o esquinas que sobresalen de la curva. El ancho de cada barra es muy grande, por eso el error es del <b>${error}%</b>. Es una aproximación poco precisa.`;
     box.style.borderLeftColor = '#E74C3C';
   } else if (n > 8 && n <= 30) {
-    box.innerHTML = `⚙️ <b>Aumentando la división (n = ${n}):</b> Al achicar el ancho de las barras ($dx$), estas se adaptan mucho mejor al techo parabólico. Los dientes de sierra disminuyen y el error bajó al <b>${error}%</b>.`;
+    box.innerHTML = ` <b>Aumentando la división (n = ${n}):</b> Al achicar el ancho de las barras ($dx$), estas se adaptan mucho mejor al techo parabólico. Los dientes de sierra disminuyen y el error bajó al <b>${error}%</b>.`;
     box.style.borderLeftColor = '#F39C12';
   } else {
-    box.innerHTML = `🚀 <b>Concepto de Integral (n = ${n}):</b> ¡Casi perfecto! Cuando el número de rectángulos tiende a infinito ($n \\to \\infty$), el ancho de cada uno se vuelve infinitesimal ($dx \\to 0$). Las barras se fusionan con la curva, el error es del <b>${error}%</b> y la suma se transforma en una <b>Integral Definida</b>.`;
+    box.innerHTML = ` <b>Concepto de Integral (n = ${n}):</b> Casi perfecto. Cuando el número de rectángulos tiende a infinito, el ancho de cada uno se vuelve infinitesimal (tiende a 0). Las barras se fusionan con la curva, el error es del <b>${error}%</b> y la suma se transforma en una <b>Integral Definida</b>.`;
     box.style.borderLeftColor = '#2ECC71';
   }
 }
@@ -842,55 +1087,126 @@ function renderEvalGrid() {
     </div>`).join('');
 }
 
+
 /* ═══════════════════════════════════════════════════════
    RANKING
 ═══════════════════════════════════════════════════════ */
-function registrarDiseño() {
-  const {x0,x1}=getRange();
-  const area=numInteg(x0,x1);
-  const vmet=[
-    f(getVx())>=3, f(getVx())<=9,
-    (x1-x0)>=8, area>=20,
-    avgSlope(x0,x1)>=4, S.mat.eco<=0.75
-  ].filter(Boolean).length;
-
-  const entry={
-    grupo:S.grupo,
-    total:S.total,
-    mat:S.mat.name,
-    area:fmt(area,1),
-    fn:`${fmt(S.a,2)}x²${S.b>=0?'+':''}${fmt(S.b,2)}x${S.c>=0?'+':''}${fmt(S.c,1)}`,
-    viable:`${vmet}/6`,
-    ts:Date.now()
-  };
-
-  const idx=ranking.findIndex(r=>r.grupo===S.grupo);
-  if(idx>=0) ranking.splice(idx,1);
-  ranking.push(entry);
-  ranking.sort((a,b)=>b.total-a.total);
-  renderRanking();
-  setTab(5);
-}
-
-function renderRanking() {
-  $('rank-count').textContent=ranking.length+' grupo'+(ranking.length!==1?'s':'');
-  if(ranking.length===0){
-    $('rank-body').innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Aún no hay diseños registrados.</td></tr>';
+/**
+ * Valida el nombre de grupo, calcula el área real (integral) y la función
+ * actual, e inserta el diseño en la tabla 'ranking' de Supabase.
+ * Columnas usadas: grupo, integrantes, material, area, funcion, puntaje.
+ *
+ * Nota: usamos la variable real `supabaseClient` (definida arriba con
+ * supabase.createClient), NO `window.supabaseClient` — esa referencia
+ * estaba rota porque nunca se asignó nada a `window.supabaseClient`,
+ * así que las llamadas anteriores fallaban silenciosamente.
+ */
+async function registrarDiseño() {
+  // ── Validación: el nombre de grupo es obligatorio ──
+  if (!S.grupo || !S.grupo.trim()) {
+    alert('Ingresá el nombre del grupo antes de registrar el diseño.');
     return;
   }
-  $('rank-body').innerHTML=ranking.map((r,i)=>{
-    const cls=i===0?'p1':i===1?'p2':i===2?'p3':'';
-    return`<tr>
-      <td><span class="pos ${cls}">${i+1}</span></td>
-      <td style="font-weight:500">${r.grupo}</td>
-      <td style="font-family:var(--font-mono);color:var(--petrol);font-weight:700">${r.total}</td>
-      <td>${r.mat}</td>
-      <td style="font-family:var(--font-mono)">${r.area} m²</td>
-      <td style="font-family:var(--font-mono);font-size:11px">${r.fn}</td>
-      <td><span class="arch-badge ${parseInt(r.viable)>=5?'ok':parseInt(r.viable)>=3?'warn':'err'}" style="font-size:10px;padding:3px 8px;">${r.viable} restricciones</span></td>
-    </tr>`;
-  }).join('');
+
+  const btn = document.querySelector('.btn-register');
+  const btnOriginalText = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+
+  const {x0, x1} = getRange();
+  const area = numInteg(x0, x1);
+  const funcionStr = `y=${fmt(S.a,2)}x²${S.b>=0?'+':''}${fmt(S.b,2)}x${S.c>=0?'+':''}${fmt(S.c,1)}`;
+
+  const payload = {
+    grupo: S.grupo.trim(),
+    integrantes: S.integrantes || '',
+    material: S.mat.id,
+    area: Number(fmt(area, 2)),
+    funcion: funcionStr,
+    puntaje: S.total,
+  };
+
+  try {
+    // [OPCIONAL] Si querés evitar que el mismo grupo se duplique en la tabla:
+    await supabaseClient
+      .from('ranking')
+      .delete()
+      .eq('grupo', S.grupo.trim());
+
+    // 1. Insertamos el diseño y ESPERAMOS que Supabase confirme con el await
+    const { error } = await supabaseClient
+      .from('ranking')
+      .insert([payload]);
+
+    if (error) throw error;
+
+    console.log('✅ Diseño guardado con éxito. Redirigiendo...');
+
+    // 2. Cambiamos a la pestaña de ranking
+    setTab(5); 
+
+    // 3. Forzamos manualmente la lectura inmediata para asegurarnos de traer los datos recién metidos
+    await fetchRanking();
+
+  } catch (err) {
+    console.error('Error al registrar el diseño en Supabase:', err);
+    alert('No se pudo guardar el diseño. Probá nuevamente en un momento.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btnOriginalText; }
+  }
 }
+
+/**
+ * Trae el ranking completo desde Supabase (ordenado de mayor a menor
+ * puntaje), limpia #rank-body y renderiza las filas dinámicamente.
+ * Maneja estado de carga y de error explícitamente.
+ */
+async function fetchRanking() {
+  const tbody = $('rank-body');
+  const countBadge = $('rank-count');
+  if (!tbody) return;
+
+  // ── Estado de carga ──
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Cargando ranking…</td></tr>';
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('ranking')
+      .select('*')
+      .order('puntaje', { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+
+    if (countBadge) {
+      countBadge.textContent = data.length + ' grupo' + (data.length !== 1 ? 's' : '');
+    }
+
+    // ── Estado vacío ──
+    if (!data || data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">Aún no hay diseños registrados.</td></tr>';
+      return;
+    }
+
+    // ── Render de filas ──
+    tbody.innerHTML = data.map((r, i) => {
+      const cls = i === 0 ? 'p1' : i === 1 ? 'p2' : i === 2 ? 'p3' : '';
+      const matLabel = (MATS.find(m => m.id === r.material) || {}).name || r.material || '—';
+      return `<tr>
+        <td><span class="pos ${cls}">${i + 1}°</span></td>
+        <td style="font-weight:500">${r.grupo}</td>
+        <td style="font-family:var(--font-mono);color:var(--petrol);font-weight:700">${r.puntaje}</td>
+        <td>${matLabel}</td>
+        <td style="font-family:var(--font-mono)">${r.area ?? '—'} m²</td>
+        <td style="font-family:var(--font-mono);font-size:11px">${r.funcion || '—'}</td>
+        <td><span class="arch-badge ok" style="font-size:10px;padding:3px 8px;">Registrado</span></td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    console.error('Error al traer el ranking de Supabase:', err);
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--alert-err);padding:24px;">No se pudo cargar el ranking. Revisá tu conexión e intentá de nuevo.</td></tr>';
+  }
+}
+
 
 /* ═══════════════════════════════════════════════════════
    MÓDULO 3D — "CAMINAR TU ECUACIÓN" (A-Frame)
@@ -905,6 +1221,7 @@ function renderRanking() {
 
 const ROOF_DEPTH = 10;      // profundidad en Z del pabellón (metros), fijo según consigna
 const CLEARANCE_MIN = 1.75; // gálibo mínimo de escala humana (metros)
+let rain3DActive = false;   // controla si la lluvia 3D + overlay de estancamiento están encendidos
 
 /**
  * Convierte la pendiente local |f'(x)| en un color rojo→verde.
@@ -985,7 +1302,36 @@ function build3DRoof() {
     strip.setAttribute('rotation', `0 0 ${angleDeg.toFixed(2)}`);
     strip.setAttribute('position', `${xm.toFixed(3)} ${ym.toFixed(3)} 0`);
     
-    roofContainer.appendChild(strip);}
+    roofContainer.appendChild(strip);
+
+    // ── OVERLAY DE ESTANCAMIENTO (rojo semitransparente) ──
+    // Se monta SOBRE la franja base, sin reemplazarla ni alterar su color.
+    // Solo aparece donde la pendiente real (en grados) es menor al umbral
+    // de drenaje del proyecto (CONSTRAINTS.slopeMin, por defecto 4°).
+    const slopeDeg = Math.atan(slope) * 180 / Math.PI;
+    if (slopeDeg < CONSTRAINTS.slopeMin) {
+      // Intensidad de la alerta: cuanto más lejos del mínimo, más opaco el rojo (0.25 a 0.65)
+      const deficit = (CONSTRAINTS.slopeMin - slopeDeg) / CONSTRAINTS.slopeMin; // 0..1
+      const overlayOpacity = (0.25 + Math.min(1, deficit) * 0.4).toFixed(2);
+
+      const overlay = document.createElement('a-entity');
+      overlay.classList.add('stagnation-overlay'); // permite togglear visibilidad por JS
+      overlay.setAttribute('geometry', `primitive:box; width:${segLen.toFixed(3)}; height:0.06; depth:${ROOF_DEPTH}`);
+      overlay.setAttribute('material', `
+        color: #E74C3C;
+        opacity: ${overlayOpacity};
+        transparent: true;
+        shader: flat;
+        side: double
+      `);
+      overlay.setAttribute('rotation', `0 0 ${angleDeg.toFixed(2)}`);
+      // se eleva ligeramente (0.03m) por encima de la franja base para evitar z-fighting
+      overlay.setAttribute('position', `${xm.toFixed(3)} ${(ym+0.03).toFixed(3)} 0`);
+      // visible solo si la simulación de lluvia 3D está activa (se controla en toggleRainOverlay)
+      overlay.setAttribute('visible', rain3DActive);
+      roofContainer.appendChild(overlay);
+    }
+  }
 
   // ── Columnas estructurales (Ajuste de altura real) ──
   const colCount = 6;
@@ -1039,6 +1385,88 @@ function build3DRoof() {
   const fnEl = document.getElementById('hud-fn');
   if (fnEl) fnEl.textContent = `y = ${fmt(S.a,2)}x² ${S.b>=0?'+':''}${fmt(S.b,2)}x ${S.c>=0?'+':''}${fmt(S.c,1)}`;
 }
+
+/* ═══════════════════════════════════════════════════════
+   LLUVIA 3D — PARTÍCULAS NATIVAS A-FRAME
+   ───────────────────────────────────────────────────────
+   No usamos un shader custom: cada gota es una <a-entity>
+   con geometry "cylinder" muy fino (efecto de "raya" de lluvia).
+   Un componente A-Frame (rain-drop) mueve cada gota en su tick()
+   y la reinicia arriba cuando toca el suelo o la cubierta.
+   Esto mantiene todo el movimiento DENTRO de A-Frame, sin requestAnimationFrame manual.
+═══════════════════════════════════════════════════════ */
+const RAIN_DROP_COUNT = 90;
+
+/**
+ * Componente de una gota individual. Cae en línea recta sobre el eje Y.
+ * Al llegar a la altura de la cubierta f(x) en su posición X, o al suelo (y=0)
+ * si está fuera del footprint del pabellón, se reposiciona arriba y reinicia.
+ */
+AFRAME.registerComponent('rain-drop', {
+  schema: { speed: {type:'number', default: 4} },
+  init: function () {
+    this.resetDrop(true);
+  },
+  resetDrop: function (randomHeight) {
+    const {x0, x1} = getRange();
+    // las gotas caen en una franja un poco más ancha que el pabellón, para que se vea lluvia "ambiente"
+    const margin = 2;
+    this.x = (x0 - margin) + Math.random() * ((x1 - x0) + margin*2);
+    this.z = (Math.random() - 0.5) * ROOF_DEPTH;
+    this.y = randomHeight ? (6 + Math.random()*6) : (10 + Math.random()*4);
+    this.el.object3D.position.set(this.x, this.y, this.z);
+  },
+  tick: function (time, deltaMs) {
+    const dt = deltaMs / 1000;
+    this.y -= this.data.speed * dt;
+
+    // altura de la cubierta en la posición X,Z de esta gota (el techo no depende de Z, es una extrusión recta)
+    const {x0, x1} = getRange();
+    const insideFootprint = this.x >= x0 && this.x <= x1;
+    const roofY = insideFootprint ? Math.max(0, f(this.x)) : 0;
+
+    if (this.y <= roofY) {
+      // la gota "impactó": si fue sobre la cubierta, podríamos generar un pequeño splash visual simple
+      this.resetDrop(false);
+      return;
+    }
+    this.el.object3D.position.y = this.y;
+  }
+});
+
+/**
+ * Crea (o destruye) las gotas de lluvia dentro de la escena y
+ * muestra/oculta el overlay rojo de estancamiento sobre la cubierta.
+ * Se llama desde la pestaña "Simulación" y desde el botón dentro del modo 3D.
+ */
+function toggleRain3D(forceState) {
+  rain3DActive = (forceState !== undefined) ? forceState : !rain3DActive;
+
+  const rainContainer = document.getElementById('rain-3d-container');
+  if (!rainContainer) return;
+
+  if (rain3DActive) {
+    // generar gotas si el contenedor está vacío
+    if (rainContainer.children.length === 0) {
+      for (let i=0; i<RAIN_DROP_COUNT; i++) {
+        const drop = document.createElement('a-entity');
+        drop.setAttribute('geometry', 'primitive:cylinder; radius:0.012; height:0.4');
+        drop.setAttribute('material', 'color:#9FD3F0; opacity:0.55; transparent:true; shader:flat');
+        drop.setAttribute('rain-drop', `speed:${4+Math.random()*2}`);
+        rainContainer.appendChild(drop);
+      }
+    }
+    rainContainer.setAttribute('visible', true);
+  } else {
+    rainContainer.setAttribute('visible', false);
+  }
+
+  // mostrar/ocultar overlays rojos de estancamiento sobre la cubierta
+  document.querySelectorAll('.stagnation-overlay').forEach(el => el.setAttribute('visible', rain3DActive));
+
+  const btn = document.getElementById('btn-toggle-rain-3d');
+  if (btn) btn.textContent = rain3DActive ? '🌧️ Detener lluvia' : '🌧️ Simular lluvia en 3D';
+}
 /**
  * Componente A-Frame: corre en cada frame (tick) sobre el rig de la cámara.
  * Compara la posición X del usuario con la altura del techo f(x) en ese punto
@@ -1082,12 +1510,19 @@ AFRAME.registerComponent('clearance-checker', {
 function enter3D() {
   document.getElementById('scene-3d-wrap').classList.add('active');
   // pequeña espera para que A-Frame termine de montar la escena antes de inyectar geometría
-  setTimeout(build3DRoof, 60);
+  setTimeout(() => {
+    build3DRoof();
+    // Si el usuario venía de la pestaña "Simulación" con la lluvia 2D activa,
+    // la lluvia 3D arranca encendida automáticamente para mantener coherencia entre vistas.
+    toggleRain3D(activeTab === 3);
+  }, 60);
 }
 
 function exit3D() {
   document.getElementById('scene-3d-wrap').classList.remove('active');
   document.getElementById('clearance-warning').classList.remove('active');
+  // apagamos la lluvia al salir para no seguir animando partículas fuera de pantalla
+  toggleRain3D(false);
 }/* ==========================================================================
    MÓDULO DE OPTIMIZACIÓN FINAL — BÚSQUEDA POR FUERZA BRUTA
    ========================================================================== */
@@ -1218,7 +1653,7 @@ function drawOptimChart(optimal, userArea, userHmax, userAncho) {
   // axes
   ctx.strokeStyle = 'rgba(30,80,120,0.3)'; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.moveTo(PAD, H - PAD); ctx.lineTo(W - PAD, H - PAD); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(PAD, PAD); ctx.lineTo(PAD, H - PAD); stroke();
+  ctx.beginPath(); ctx.moveTo(PAD, PAD); ctx.lineTo(PAD, H - PAD); ctx.stroke();
 
   ctx.fillStyle = 'rgba(30,80,120,0.5)'; ctx.font = '10px Space Mono,monospace';
   ctx.textAlign = 'center'; ctx.fillText('Área bajo la curva (m²) →', W / 2, H - 10);
@@ -1246,9 +1681,56 @@ function drawOptimChart(optimal, userArea, userHmax, userAncho) {
   ctx.fillText('Tu diseño', tX(userArea) + 12, tY(userHmax) + 16);
 }
 
+// Funciones globales para controlar el catálogo técnico
+function openCatalog() {
+  const modal = document.getElementById('catalog-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeCatalog() {
+  const modal = document.getElementById('catalog-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// Cerrar el modal si el usuario hace click afuera de la caja blanca
+window.addEventListener('click', (event) => {
+  const modal = document.getElementById('catalog-modal');
+  if (event.target === modal) {
+    modal.style.display = 'none';
+  }
+});
+
+function selectMaterialFromCatalog(idMaterial) {
+  // 1. Buscamos el objeto del material dentro de tu array global MATS
+  const materialEncontrado = MATS.find(m => m.id === idMaterial);
+  
+  if (materialEncontrado) {
+    // 2. Actualizamos el estado global del proyecto
+    S.mat = materialEncontrado;
+    
+    // 3. Forzamos la actualización visual de la interfaz (grilla de materiales externa, puntos, etc.)
+    // Nota: Reemplazá 'update()' por el nombre exacto de la función que refresca tus gráficos 2D y cálculos
+    if (typeof update === 'function') {
+      update(); 
+    }
+    
+    // 4. Cerramos el catálogo automáticamente para que el alumno vea el cambio reflejado
+    closeCatalog();
+    
+    console.log(` Material cambiado desde el catálogo a: ${materialEncontrado.name}`);
+  }
+}
+
 /* ==========================================================================
    INICIALIZACIÓN DE LA INTERFAZ
-   (Asegurate de definir estas funciones abajo o arriba de este módulo)
+   (Asegurarse de definir estas funciones abajo o arriba de este módulo)
    ========================================================================== */
 // buildMatGrid();
 // buildScoreRows();
+
+// Los listeners de drag sobre cv-math se montan una sola vez al cargar el script.
+// No dependen de startApp() porque el canvas ya existe en el DOM desde el index.html
+// (aunque su panel esté oculto hasta que el usuario complete la pantalla de inicio).
+initMathCanvasDrag();
+
+

@@ -8,9 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 
+  <link rel="stylesheet" href="style.css">
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
-  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
 </head>
 <body>
 
@@ -38,7 +41,7 @@
           </div>
           <div class="constraint-item">
             <span class="constraint-val">≥ 8 m</span>
-            <div class="constraint-lbl">Ancho mínimo de cubierta</div>
+            <div class="constraint-lbl">Distancia mínima entre apoyos</div>
           </div>
           <div class="constraint-item">
             <span class="constraint-val">≥ 20 m²</span>
@@ -56,11 +59,11 @@
 
         <div class="form-row">
           <label class="form-label">Nombre del grupo</label>
-          <input class="form-input" id="inp-grupo" placeholder="Ej: Grupo Fibonacci" />
+          <input class="form-input" id="inp-grupo" placeholder="Ej: Grupo 1" />
         </div>
         <div class="form-row" style="margin-bottom:20px">
           <label class="form-label">Integrantes (opcional)</label>
-          <input class="form-input" id="inp-integrantes" placeholder="Ej: García, López, Martínez" />
+          <input class="form-input" id="inp-integrantes" placeholder="Ej: López, Martínez, Messi" />
         </div>
         <button class="btn-start" id="btn-start" onclick="startApp()">Comenzar diseño →</button>
       </div>
@@ -103,31 +106,76 @@
                 <span class="card-badge" style="background:var(--petrol-faint);color:var(--petrol);border:1px solid var(--petrol-light)" id="formula-badge">y = ax² + bx + c</span>
               </div>
               <div class="edu-box" style="margin-bottom:14px;">
-                La cubierta sigue la ley <span class="edu-formula">y = ax² + bx + c</span>. El coeficiente <b>a</b> define la curvatura (debe ser negativo para que la cubierta sea convexa). <b>b</b> controla el sesgo lateral y <b>c</b> la altura de la clave.
+                La cubierta sigue la ley <span class="edu-formula">y = ax² + bx + c</span>. El coeficiente <b>a</b> define la curvatura, <b>b</b> desplaza el eje y <b>c</b> es la ordenada al origen.
               </div>
+              
               <div class="slider-section">
                 <div class="slider-row">
                   <span class="slider-key">a</span>
                   <input type="range" id="sl-a" min="-2.5" max="-0.05" step="0.05" value="-0.5" oninput="update()">
-                  <span class="slider-val-box" id="val-a">-0.50</span>
+                  <input type="number" class="slider-val-box" id="val-a" value="-0.50" step="0.05" min="-2.5" max="-0.05" onchange="updateFromTextInput('a', this.value)">
                 </div>
                 <div class="slider-row">
                   <span class="slider-key">b</span>
                   <input type="range" id="sl-b" min="-4" max="4" step="0.1" value="0" oninput="update()">
-                  <span class="slider-val-box" id="val-b">0.00</span>
+                  <input type="number" class="slider-val-box" id="val-b" value="0.00" step="0.1" min="-4" max="4" onchange="updateFromTextInput('b', this.value)">
                 </div>
                 <div class="slider-row">
                   <span class="slider-key">c</span>
                   <input type="range" id="sl-c" min="1" max="10" step="0.1" value="6" oninput="update()">
-                  <span class="slider-val-box" id="val-c">6.00</span>
+                  <input type="number" class="slider-val-box" id="val-c" value="6.00" step="0.1" min="1" max="10" onchange="updateFromTextInput('c', this.value)">
                 </div>
               </div>
             </div>
 
-            <div class="card">
+          <div class="card">
               <div class="card-head"><span class="card-title">Material de cubierta</span></div>
               <div class="mat-grid" id="mat-grid"></div>
-            </div>
+              
+              <button class="btn-catalog" onclick="openCatalog()" style="margin-top: 12px; width: 100%;">
+                📖 Abrir Catálogo Técnico de Materiales
+              </button>
+
+              <div id="catalog-modal" class="modal">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h2>Catálogo Técnico de Especificaciones</h2>
+                    <button class="close-btn" onclick="closeCatalog()">&times;</button>
+                  </div>
+                  
+                  <div class="catalog-grid">
+                    <div class="catalog-card">
+                      <h3>🪵 Madera Laminada</h3>
+                      <div class="catalog-meta"><span>Costo: USD 420</span><span>Impacto Eco: 0.28 🟢</span></div>
+                      <p><b>¿Por qué el costo?</b> Proviene de procesos de ingeniería forestal donde se encolan tiras de madera seleccionada.</p>
+                      <p><b>¿Por qué el índice ecológico?</b> Es un recurso renovable y actúa como sumidero de carbono.</p>
+                      <button class="btn-select-inside" onclick="selectMaterialFromCatalog('madera')">Seleccionar Madera</button>
+                    </div>
+
+                    <div class="catalog-card">
+                      <h3>🏢 Hormigón Visto</h3>
+                      <div class="catalog-meta"><span>Costo: USD 260</span><span>Impacto Eco: 0.82 🔴</span></div>
+                      <p><b>¿Por qué el costo?</b> Insumos básicos baratos y de fácil acceso local, lo que reduce el presupuesto.</p>
+                      <p><b>¿Por qué el índice ecológico?</b> La fabricación del cemento genera toneladas de gases de efecto invernadero.</p>
+                      <button class="btn-select-inside" onclick="selectMaterialFromCatalog('hormigon')">Seleccionar Hormigón</button>
+                    </div>
+
+                    <div class="catalog-card">
+                      <h3>🏗️ Acero Estructural</h3>
+                      <div class="catalog-meta"><span>Costo: USD 680</span><span>Impacto Eco: 0.60 🟡</span></div>
+                      <p><b>¿Por qué el costo?</b> Requiere procesos de fundición a altas temperaturas y mano de obra especializada.</p>
+                      <p><b>¿Por qué el índice ecológico?</b> Consume mucha energía inicial, pero es 100% reciclable al final de su vida útil.</p>
+                      <button class="btn-select-inside" onclick="selectMaterialFromCatalog('acero')">Seleccionar Acero</button>
+                    </div>
+
+                    <div class="catalog-card">
+                      <h3>🔮 Vidrio Estructural</h3>
+                      <div class="catalog-meta"><span>Costo: USD 980</span><span>Impacto Eco: 0.22 🟢</span></div>
+                      <p><b>¿Por qué el costo?</b> Templado y laminado de gran espesor. Instalación con herrajes de alta tecnología.</p>
+                      <p><b>¿Por qué el índice ecológico?</b> Permite el paso de luz natural, reduciendo a cero el consumo eléctrico diurno.</p>
+                      <button class="btn-select-inside" onclick="selectMaterialFromCatalog('vidrio')">Seleccionar Vidrio</button>
+                    </div>
+                  </div> </div> </div> </div> 
 
             <div class="grid-3">
               <div class="metric" id="m-hmax-c"><div class="metric-val" id="m-hmax">—</div><div class="metric-lbl">Altura máx. (m)</div></div>
@@ -269,16 +317,15 @@
 
         <div class="card" style="margin-top: 14px;">
           <div class="card-head">
-            <span class="card-title">Módulo de optimización final — comparación con el óptimo teórico</span>
-            <span class="card-badge" style="background:#FFFBEB;color:#92400E;border:1px solid #D4AF37">Fuerza bruta · ℝ²</span>
+            <span class="card-title">Simulador de diseño ideal — comparación con el óptimo teórico</span>
+            <span class="card-badge" style="background:#FFFBEB;color:#92400E;border:1px solid #D4AF37">Diseño Eficiente · ℝ²</span>
           </div>
           <div class="edu-box" style="margin-bottom:14px;">
-            El sistema explora <b>miles de combinaciones (a, b, c)</b> por fuerza bruta para encontrar el diseño que maximiza el área bajo la curva, exigiendo que el <b>gálibo sea mayor a 1.75 m</b> en toda la zona transitable y que la <b>pendiente en los extremos garantice escurrimiento</b> según el material elegido.
+            El sistema analiza automáticamente cientos de opciones de techos en un segundo para encontrar el mejor diseño posible. El programa busca la forma que use menos material y cubra más espacio, pero controlando que nadie se choque la cabeza (dejando siempre más de 1.75 m de altura libre) y que el agua de lluvia corra bien según el material que elegiste.
           </div>
-          <button class="btn-optim" onclick="runOptimization()">Calcular óptimo y comparar mi diseño →</button>
+          <button class="btn-optim" onclick="runOptimization()">Calcular el mejor diseño y comparar →</button>
           <div id="optim-results" style="margin-top:16px;"></div>
         </div>
-      </div>
 
       <div class="panel" id="panel-5">
         <div class="card">

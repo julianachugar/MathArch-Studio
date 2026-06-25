@@ -375,6 +375,26 @@ input[type=range] {
   padding: 4px 6px;
   text-align: center;
 }
+/* Cuando .slider-val-box es un <input type="number"> (editable a mano) */
+input.slider-val-box {
+  width: 58px;
+  outline: none;
+  transition: border-color .15s, background .15s;
+}
+input.slider-val-box:focus {
+  border-color: var(--petrol2);
+  background: var(--surface);
+}
+/* Oculta las flechitas nativas del input number para que se vea igual que antes */
+input.slider-val-box::-webkit-outer-spin-button,
+input.slider-val-box::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.slider-val-box[type=number] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
 
 /* ─── MATERIAL SELECTOR ─────────────────────────────────────────── */
 .mat-grid {
@@ -434,6 +454,12 @@ input[type=range] {
   position: relative;
 }
 canvas { display: block; width: 100%; }
+
+/* Cursor sobre el canvas matemático interactivo: cambia según haya o no
+   un punto de control debajo del mouse (clase agregada/quitada por JS) */
+#cv-math { cursor: default; }
+#cv-math.draggable-hover { cursor: grab; }
+#cv-math.dragging { cursor: grabbing; }
 
 .canvas-label {
   position: absolute;
@@ -510,6 +536,53 @@ canvas { display: block; width: 100%; }
 }
 .btn-register:hover { background: var(--petrol2); }
 
+/* Forzar comportamiento correcto de paneles */
+.panel {
+  display: none; /* Oculto por defecto */
+  width: 100%;
+  min-height: 500px; /* Le damos una altura base para que no colapse */
+  background: var(--surface, #ffffff) !important; /* Forzamos color sólido */
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1;
+}
+
+/* Cuando se le agrega la clase .active */
+.panel.active {
+  display: block !important;
+  visibility: visible !important;
+}
+
+/* Evitar que los canvas de otras pestañas floten encima */
+#panel-0:not(.active), 
+#panel-1:not(.active) {
+  display: none !important;
+}
+
+/* 1. Ocultar físicamente los paneles no activos de forma estricta */
+.panel:not(.active) {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* 2. Asegurar que el panel del ranking sea un bloque sólido que tape todo */
+#panel-5 {
+  display: none; /* Se maneja con .active */
+  background: var(--surface, #ffffff) !important; /* Pisa el milimetrado de los canvas */
+  min-height: 100vh; /* Ocupa todo el alto de la pantalla */
+  width: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 10; /* Se posiciona por encima de residuos de canvas antiguos */
+}
+
+#panel-5.active {
+  display: block !important;
+}
 /* ─── CONSTRAINT STATUS ─────────────────────────────────────────── */
 .constraint-status {
   display: grid;
@@ -595,7 +668,186 @@ canvas { display: block; width: 100%; }
 .btn-3d:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(26,82,118,0.35); }
 .btn-3d:active { transform: scale(.99); }
 
-/* ─── 3D SCENE OVERLAY ───────────────────────────────────────────── */
+/* ─── PANELES Y CONTROL DE VISIBILIDAD DE SOLAPAS ───────────────── */
+.panel {
+  display: none;                  /* Oculto por defecto */
+  width: 100%;
+  min-height: 500px;              /* Altura base para que no colapse */
+  background: var(--surface, #ffffff) !important; /* Forzamos color sólido para tapar los canvas */
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1;
+}
+
+/* Estado activo general */
+.panel.active {
+  display: block !important;
+  visibility: visible !important;
+}
+
+/* Ocultamiento físico y estricto de cualquier panel no activo */
+.panel:not(.active) {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Forzar que las tarjetas dentro del ranking mantengan consistencia visual */
+#panel-5 .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+/* Asegurar aislamiento de los canvas cuando sus paneles se apagan */
+#panel-0:not(.active), 
+#panel-1:not(.active) {
+  display: none !important;
+}
+
+/* Evitar residuos visuales de canvas antiguos flotando en el ranking */
+#panel-5 {
+  z-index: 10;                    /* Se posiciona encima de cualquier remanente gráfico */
+  min-height: 100vh;              /* Ocupa todo el alto de pantalla si es necesario */
+  padding: 20px;
+}
+
+
+/* ─── RANKING TABLE ─────────────────────────────────────────────── */
+.rank-table { width: 100%; border-collapse: collapse; }
+.rank-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.rank-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--ink);
+}
+.rank-table tr:last-child td { border-bottom: none; }
+
+/* Medallas de Clasificación */
+.pos { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; font-family: var(--font-mono); font-size: 11px; font-weight: 700; background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+.pos.p1 { background: #FEF3C7; color: #92400E; border-color: #F59E0B; }
+.pos.p2 { background: #F1F5F9; color: #475569; border-color: #94A3B8; }
+.pos.p3 { background: #FEF2E8; color: #9A3412; border-color: #F97316; }
+
+.btn-register {
+  background: var(--petrol);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 10px 20px;
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-register:hover { background: var(--petrol2); }
+
+
+/* ─── CONSTRAINT STATUS (MÉTRICAS Y LIMITACIONES) ───────────────── */
+.constraint-status {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.cs-item {
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  font-size: 11px;
+}
+.cs-item.ok { background: var(--alert-ok-bg); color: var(--alert-ok); border-color: var(--alert-ok); }
+.cs-item.warn { background: var(--alert-warn-bg); color: var(--alert-warn); border-color: var(--alert-warn); }
+.cs-item.err { background: var(--alert-err-bg); color: var(--alert-err); border-color: var(--alert-err); }
+.cs-lbl { font-family: var(--font-mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+.cs-val { font-weight: 500; margin-top: 2px; }
+
+
+/* ─── CORE SECTORS ──────────────────────────────────────────────── */
+.sector-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+.sector-item { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; text-align: center; }
+.sector-ang { font-family: var(--font-mono); font-size: 22px; font-weight: 700; }
+.sector-lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.sector-status { font-size: 10px; font-weight: 500; margin-top: 6px; font-family: var(--font-mono); letter-spacing: .04em; }
+
+
+/* ─── RAIN (SIMULACIÓN CLIMÁTICA) ────────────────────────────────── */
+.rain-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+
+/* ─── ARCH EVAL (EVALUACIÓN GLOBAL) ──────────────────────────────── */
+.eval-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.eval-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.eval-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.eval-title { font-size: 12px; font-weight: 500; color: var(--ink); }
+.eval-desc { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+
+
+/* ─── TOTAL DISPLAY ─────────────────────────────────────────────── */
+.total-display {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.total-num { font-family: var(--font-mono); font-size: 36px; font-weight: 700; color: var(--petrol); }
+.total-denom { font-size: 18px; color: var(--muted); }
+.total-lbl { font-size: 13px; color: var(--muted); margin-left: 8px; }
+
+
+/* ─── 3D WALKTHROUGH BUTTON & SCENE OVERLAY ──────────────────────── */
+.btn-3d {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, var(--petrol) 0%, #154360 100%);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: .02em;
+  transition: transform .15s, box-shadow .15s;
+  box-shadow: 0 2px 10px rgba(26,82,118,0.25);
+}
+.btn-3d:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(26,82,118,0.35); }
+.btn-3d:active { transform: scale(.99); }
+
 #scene-3d-wrap {
   position: fixed;
   inset: 0;
@@ -676,6 +928,27 @@ canvas { display: block; width: 100%; }
   font-size: 11px;
   backdrop-filter: blur(6px);
 }
+
+.btn-rain-3d {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1010;
+  background: rgba(46,134,171,0.85);
+  color: #fff;
+  border: 1px solid rgba(126,200,227,0.5);
+  border-radius: var(--radius);
+  padding: 10px 20px;
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background .15s, transform .15s;
+}
+.btn-rain-3d:hover { background: rgba(26,82,118,0.95); }
+.btn-rain-3d:active { transform: translateX(-50%) scale(.97); }
 
 /* clearance warning flash */
 #clearance-warning {
@@ -767,3 +1040,120 @@ canvas { display: block; width: 100%; }
   margin-top: 8px;
 }
 .btn-optim:hover { background: var(--petrol2); }
+
+/* Botón del catálogo */
+.btn-catalog {
+  background: rgba(30, 80, 120, 0.08);
+  color: #1a5276;
+  border: 1px dashed #1a5276;
+  padding: 10px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-catalog:hover {
+  background: #1a5276;
+  color: #fff;
+  border-style: solid;
+}
+
+/* Contenedor del Modal (Fondo oscuro) */
+.modal {
+  display: none; 
+  position: fixed;
+  z-index: 10000; /* Por encima de todo, incluso de A-Frame */
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  background-color: rgba(15, 23, 42, 0.6); /* Backdrop oscuro sofisticado */
+  backdrop-filter: blur(4px);
+  align-items: center;
+  justify-content: center;
+}
+
+/* Caja contenedora interna */
+.modal-content {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 850px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  font-family: 'Inter', sans-serif;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.modal-header h2 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 18px;
+  color: #1e5078;
+  margin: 0;
+}
+.close-btn {
+  background: none; border: none; font-size: 28px; cursor: pointer; color: #94a3b8;
+}
+.close-btn:hover { color: #ef4444; }
+
+/* Grilla del catálogo */
+.catalog-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 24px;
+}
+@media (max-width: 600px) { .catalog-grid { grid-template-columns: 1fr; } }
+
+.catalog-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+}
+.catalog-card h3 {
+  font-family: 'Space Grotesk', sans-serif;
+  margin: 0 0 8px 0;
+  font-size: 16px;
+}
+.catalog-meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  background: #edf2f7;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+.catalog-card p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #475569;
+  margin: 0 0 8px 0;
+}
+
+.btn-select-inside {
+  width: 100%;
+  background: #1a5276;
+  color: #ffffff;
+  border: none;
+  padding: 8px 12px;
+  margin-top: 10px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-select-inside:hover {
+  background: #2471a3; /* Un azul un toque más claro al pasar el mouse */
+}
