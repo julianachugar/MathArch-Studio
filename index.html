@@ -161,7 +161,7 @@
               </div>
             </div>
             <button class="btn-3d" id="btn-walk" onclick="enter3D()">
-              🚶‍♂️ Recorrer Pabellón en 3D
+               Recorrer Pabellón en 3D
             </button>
           </div>
 
@@ -262,7 +262,7 @@
               <span class="total-lbl">puntos totales</span>
             </div>
             <div style="margin-top:16px; text-align:center;">
-              <button class="btn-register" onclick="registrarDiseño()">Registrar este diseño →</button>
+              <button class="btn-register" onclick="registrarDiseño()"> Registrar diseño y descubrir mi puntaje</button>
             </div>
           </div>
           <div>
@@ -276,7 +276,7 @@
           </div>
         </div>
 
-        <div class="card" style="margin-top: 14px;">
+        <div class="card" id="optim-section" style="margin-top: 14px;">
           <div class="card-head">
             <span class="card-title">Simulador de diseño ideal — comparación con el óptimo teórico</span>
             <span class="card-badge" style="background:#FFFBEB;color:#92400E;border:1px solid #D4AF37">Diseño Eficiente · ℝ²</span>
@@ -284,7 +284,9 @@
           <div class="edu-box" style="margin-bottom:14px;">
             El sistema analiza automáticamente cientos de opciones de techos en un segundo para encontrar el mejor diseño posible. El programa busca la forma que use menos material y cubra más espacio, pero controlando que nadie se choque la cabeza (dejando siempre más de 1.75 m de altura libre) y que el agua de lluvia corra bien según el material que elegiste.
           </div>
-          <button class="btn-optim" onclick="runOptimization()">Calcular el mejor diseño y comparar →</button>
+          <div id="optim-locked-msg" class="edu-box" style="border-left-color:var(--muted);color:var(--muted);">
+             Esta comparación se revela automáticamente después de registrar tu diseño — así no podés ver la solución óptima antes de decidir tu cubierta final.
+          </div>
           <div id="optim-results" style="margin-top:16px;"></div>
         </div>
       </div>
@@ -312,12 +314,21 @@
             </tbody>
           </table>
         </div>
-        <div class="edu-box">
-          El ranking muestra cómo cada grupo equilibró las variables del proyecto. Un puntaje alto requiere habitabilidad, eficiencia de materiales, sustentabilidad y buen drenaje simultáneamente — igual que en el ejercicio profesional real.
-        </div>
       </div>
 
     </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════
+       OVERLAY DE REVELACIÓN — pantalla completa que se activa
+       al registrar el diseño. Muestra primero la animación de
+       "caja negra" (mensajes + barra de progreso) y después el
+       resultado final con medalla y comparación. Todo el contenido
+       se inyecta dinámicamente desde runRevealSequence()/revealFinalResult()
+       en script.js — este contenedor arranca vacío.
+  ═══════════════════════════════════════════════════════ -->
+  <div id="reveal-overlay">
+    <div class="reveal-box" id="reveal-stage"></div>
   </div>
 
   <div id="scene-3d-wrap">

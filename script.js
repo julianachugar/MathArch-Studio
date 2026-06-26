@@ -70,6 +70,17 @@ const MATS = [
   }
 ];
 
+// ── Color real aproximado por material, usado en build3DRoof() cuando
+//    la lluvia 3D NO está activa (modo "render arquitectónico", el que
+//    el alumno ve al recorrer su pabellón normalmente). Son tonos de
+//    referencia visual; no afectan ningún cálculo matemático.
+const MAT_COLOR_HEX = {
+  madera:   '#B8835A', // tono madera laminada cálido
+  hormigon: '#9B9B93', // gris hormigón visto
+  acero:    '#8C9499', // gris acero con tinte frío
+  vidrio:   '#BFE3F0', // celeste vidrio, combinado con su transparencia real
+};
+
 const CONSTRAINTS = {
   hMin: 3, hMax: 9, wMin: 8, areaMin: 20, slopeMin: 4, ecoMax: 0.75
 };
@@ -85,13 +96,18 @@ const SCORE_CATS = [
 let S = {
   grupo:'', integrantes:'', mat:MATS[0],
   a:-0.5, b:0, c:6, px:0.5,
-  scores:{s1:0,s2:0,s3:0,s4:0,s5:0}, total:0
+  scores:{s1:0,s2:0,s3:0,s4:0,s5:0}, total:0,
+  registered:false,        // true desde que el grupo registra su diseño — bloquea edición
+  evaluationUnlocked:false,// true solo después de que termina la animación de revelación
+  lockedDesign:null,       // snapshot congelado de {a,b,c,mat,area,hmax,ancho,funcionStr,total} al momento de registrar
 };
 
 let ranking = [];
 let rainParticles = [];
 let rainRAF = null;
 let activeTab = 0;
+let derivTransform=null;
+let optimizationAnimation = null;
 
 
 /* ═══════════════════════════════════════════════════════
@@ -151,7 +167,7 @@ function setTab(i) {
   if(i===1) updateDeriv();
   if(i===2) drawInteg();
   if(i===3) { initRain(); drawRain(); }
-  if(i===4) renderEvalGrid();
+  if(i===4) { renderEvalGrid(); drawOptimChartIfVisible(); }
   if(i===5) fetchRanking();
 }
 
@@ -166,7 +182,10 @@ function buildMatGrid() {
       <div class="mat-specs">$${m.cost}/m² · eco ${m.eco}</div>
     </button>`).join('');
 }
-function selMat(id) { S.mat = MATS.find(m=>m.id===id); buildMatGrid(); update(); }
+function selMat(id) {
+  if (S.registered) return; // material congelado tras el registro
+  S.mat = MATS.find(m=>m.id===id); buildMatGrid(); update();
+}
 
 /* ═══════════════════════════════════════════════════════
    MAIN UPDATE
@@ -175,9 +194,9 @@ function update() {
   S.a = parseFloat($('sl-a').value);
   S.b = parseFloat($('sl-b').value);
   S.c = parseFloat($('sl-c').value);
-  $('val-a').textContent = fmt(S.a);
-  $('val-b').textContent = fmt(S.b);
-  $('val-c').textContent = fmt(S.c);
+  $('val-a').value = fmt(S.a);
+  $('val-b').value = fmt(S.b);
+  $('val-c').value = fmt(S.c);
 
   const {x0,x1} = getRange();
   const vx = getVx(), vy = f(vx);
@@ -186,6 +205,11 @@ function update() {
   const area = numInteg(x0, x1);
   const pMaxAng = angDeg(x0);
   const ecoVal = S.mat.eco;
+
+  // 🟢 REGISTRO VISUAL DEL MATERIAL SELECCIONADO (Agrega estas líneas aquí)
+  // Cambia los IDs de los elementos si en tu HTML se llaman diferente:
+  if ($('m-cost')) $('m-cost').textContent = `USD ${S.mat.cost}`;
+  if ($('m-mat-name')) $('m-mat-name').textContent = S.mat.name; 
 
   // formula badge
   const a=S.a, b=S.b, c=S.c;
@@ -380,6 +404,11 @@ let dragState = {
   fixedRoot: null,      // al arrastrar una raíz, guardamos la OTRA raíz para no moverla
 };
 
+let derivDragState = {
+  active: false,
+  hover: false
+};
+
 /**
  * Convierte coordenadas de mouse (relativas al viewport) a coordenadas
  * internas del canvas, considerando que el canvas se escala con CSS
@@ -425,6 +454,11 @@ function hitTestControlPoints(px, py) {
  * y llama a update() para refrescar TODA la app (igual que un slider).
  */
 function applyCoeffs(a, b, c) {
+  // Una vez registrado el diseño, ningún camino (slider, drag, input numérico)
+  // puede seguir modificando a/b/c — el diseño comparado con el óptimo
+  // tiene que ser exactamente el que se guardó en Supabase.
+  if (S.registered) return;
+
   const slA = $('sl-a'), slB = $('sl-b'), slC = $('sl-c');
   a = Math.min(parseFloat(slA.max), Math.max(parseFloat(slA.min), a));
   b = Math.min(parseFloat(slB.max), Math.max(parseFloat(slB.min), b));
@@ -493,6 +527,7 @@ function initMathCanvasDrag() {
   if (!cv) return;
 
   cv.addEventListener('mousedown', (evt) => {
+    if (S.registered) return; // diseño congelado: no se puede iniciar un arrastre
     const {px, py} = getCanvasCoords(evt, cv);
     const hit = hitTestControlPoints(px, py);
     if (!hit) return;
@@ -707,6 +742,22 @@ function drawArch(x0,x1,vx,vy) {
 /* ═══════════════════════════════════════════════════════
    DERIVADAS
 ═══════════════════════════════════════════════════════ */
+function hitTestDerivPoint(px, py){
+
+  if(!derivTransform) return false;
+
+  const {tX,tY}=derivTransform;
+
+  const {x0,x1}=getRange();
+  const t=parseFloat($('sl-px').value)/100;
+  const xp=x0+t*(x1-x0);
+  const yp=f(xp);
+
+  const sx=tX(xp);
+  const sy=tY(yp);
+
+  return Math.hypot(px-sx, py-sy) <= 12;
+}
 function updateDeriv() {
   const {x0,x1}=getRange();
   const t=parseFloat($('sl-px').value)/100;
@@ -754,6 +805,13 @@ function updateDeriv() {
   const yMaxD=Math.max(f(getVx()),0)+0.6;
   const tX=x=>(x-x0)/(x1-x0)*(W-2*PAD)+PAD;
   const tY=y=>H-PAD-(y-yMinD)/(yMaxD-yMinD)*(H-2*PAD);
+  derivTransform = {
+  tX,
+  tY,
+  invX(px){
+    return x0 + ((px-PAD)/(W-2*PAD))*(x1-x0);
+  }
+};
 
   ctx.strokeStyle='rgba(30,80,120,0.07)'; ctx.lineWidth=1;
   for(let gx=Math.ceil(x0);gx<=Math.floor(x1);gx++){ctx.beginPath();ctx.moveTo(tX(gx),PAD);ctx.lineTo(tX(gx),H-PAD);ctx.stroke();}
@@ -781,10 +839,68 @@ function updateDeriv() {
   }
 
   // point
-  ctx.fillStyle=color; ctx.beginPath(); ctx.arc(tX(xp),tY(yp),6,0,2*Math.PI); ctx.fill();
-  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(tX(xp),tY(yp),3,0,2*Math.PI); ctx.fill();
+  ctx.fillStyle = derivDragState.hover ? '#E74C3C' : color;
+
+  ctx.beginPath();
+  ctx.arc(
+    tX(xp),
+    tY(yp),
+    derivDragState.hover ? 8 : 6,
+    0,
+    2*Math.PI
+  );
+  ctx.fill();
 }
 
+function initDerivDrag(){
+
+  const cv=$('cv-deriv');
+  if(!cv)return;
+
+
+  cv.addEventListener('mousedown', e=>{
+
+    const {px,py}=getCanvasCoords(e,cv);
+
+    if(hitTestDerivPoint(px,py)){
+      derivDragState.active=true;
+      cv.classList.add('dragging');
+      e.preventDefault();
+    }
+
+  });
+
+
+  window.addEventListener('mousemove', e=>{
+
+    if(!derivDragState.active)return;
+
+    const {px}=getCanvasCoords(e,cv);
+
+    const newX=derivTransform.invX(px);
+
+    const {x0,x1}=getRange();
+
+    let percent=((newX-x0)/(x1-x0))*100;
+
+    // limitar al rango del slider
+    percent=Math.max(0,Math.min(100,percent));
+
+    $('sl-px').value=percent;
+
+    updateDeriv();
+
+  });
+
+
+  window.addEventListener('mouseup',()=>{
+
+    derivDragState.active=false;
+    cv.classList.remove('dragging');
+
+  });
+
+}
 /* ═══════════════════════════════════════════════════════
    INTEGRALES — ANIMACIÓN DINÁMICA DE RIEMANN
    ═══════════════════════════════════════════════════════ */
@@ -900,7 +1016,7 @@ function updateIntegText(n, error) {
     box.innerHTML = ` <b>Pocos rectángulos (n = ${n}):</b> Quedan "huecos" vacíos o esquinas que sobresalen de la curva. El ancho de cada barra es muy grande, por eso el error es del <b>${error}%</b>. Es una aproximación poco precisa.`;
     box.style.borderLeftColor = '#E74C3C';
   } else if (n > 8 && n <= 30) {
-    box.innerHTML = ` <b>Aumentando la división (n = ${n}):</b> Al achicar el ancho de las barras ($dx$), estas se adaptan mucho mejor al techo parabólico. Los dientes de sierra disminuyen y el error bajó al <b>${error}%</b>.`;
+    box.innerHTML = ` <b>Aumentando la división (n = ${n}):</b> Al achicar el ancho de las barras, estas se adaptan mucho mejor al techo parabólico. Los dientes de sierra disminuyen y el error bajó al <b>${error}%</b>.`;
     box.style.borderLeftColor = '#F39C12';
   } else {
     box.innerHTML = ` <b>Concepto de Integral (n = ${n}):</b> Casi perfecto. Cuando el número de rectángulos tiende a infinito, el ancho de cada uno se vuelve infinitesimal (tiende a 0). Las barras se fusionan con la curva, el error es del <b>${error}%</b> y la suma se transforma en una <b>Integral Definida</b>.`;
@@ -1108,12 +1224,22 @@ async function registrarDiseño() {
     return;
   }
 
+  // ── Si ya está registrado, no se vuelve a guardar ni a recalcular nada ──
+  // (evita doble-submit y evita que se pueda "re-registrar" para forzar un nuevo cálculo)
+  if (S.registered) {
+    runRevealSequence();
+    return;
+  }
+
   const btn = document.querySelector('.btn-register');
   const btnOriginalText = btn ? btn.textContent : null;
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
 
   const {x0, x1} = getRange();
   const area = numInteg(x0, x1);
+  const vx = getVx();
+  const hmax = Math.max(0, f(vx));
+  const ancho = x1 - x0;
   const funcionStr = `y=${fmt(S.a,2)}x²${S.b>=0?'+':''}${fmt(S.b,2)}x${S.c>=0?'+':''}${fmt(S.c,1)}`;
 
   const payload = {
@@ -1139,20 +1265,50 @@ async function registrarDiseño() {
 
     if (error) throw error;
 
-    console.log('✅ Diseño guardado con éxito. Redirigiendo...');
+    console.log('✅ Diseño guardado con éxito.');
 
-    // 2. Cambiamos a la pestaña de ranking
-    setTab(5); 
+    // 2. Congelamos el diseño EXACTO que se acaba de guardar. A partir de
+    //    ahora, cualquier comparación con el óptimo usa este snapshot,
+    //    nunca el estado en vivo de los sliders.
+    S.lockedDesign = { a: S.a, b: S.b, c: S.c, x0, x1, vx, hmax, ancho, area, funcionStr, total: S.total, mat: S.mat };
+    S.registered = true;
 
-    // 3. Forzamos manualmente la lectura inmediata para asegurarnos de traer los datos recién metidos
-    await fetchRanking();
+    // 3. Bloqueamos la edición del diseño (sliders, inputs, drag, material)
+    lockDesignEditing();
+
+    // 4. Ocultamos el mensaje de "bloqueado" — a partir de ahora el bloque
+    //    de comparación va a mostrar contenido real (vía runOptimization)
+    const lockedMsg = document.getElementById('optim-locked-msg');
+    if (lockedMsg) lockedMsg.style.display = 'none';
+
+    // 5. Disparamos la secuencia de revelación tipo juego — acá es donde,
+    //    por primera vez, se va a calcular el óptimo (dentro de runRevealSequence).
+    runRevealSequence();
 
   } catch (err) {
     console.error('Error al registrar el diseño en Supabase:', err);
     alert('No se pudo guardar el diseño. Probá nuevamente en un momento.');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = btnOriginalText; }
+    if (btn) { btn.disabled = false; btn.textContent = S.registered ? 'Diseño registrado ✓' : btnOriginalText; }
   }
+}
+
+/**
+ * Deshabilita todos los controles que permiten modificar a/b/c o el
+ * material después de registrar: sliders, inputs numéricos, drag sobre
+ * el canvas, y la grilla de materiales. El diseño queda fijo para que
+ * la comparación posterior con el óptimo sea siempre fiel a lo guardado.
+ */
+function lockDesignEditing() {
+  ['sl-a','sl-b','sl-c','val-a','val-b','val-c'].forEach(id => {
+    const el = $(id);
+    if (el) el.disabled = true;
+  });
+  // el drag sobre cv-math se desactiva consultando S.registered en los handlers (ver initMathCanvasDrag)
+  const cv = $('cv-math');
+  if (cv) cv.classList.add('locked');
+  const matGrid = $('mat-grid');
+  if (matGrid) matGrid.classList.add('locked');
 }
 
 /**
@@ -1277,31 +1433,28 @@ function build3DRoof() {
     const yb = Math.max(0, f(xb));
     const ym = (ya+yb)/2;
 
-    // Pendiente local en el centro de la franja → mapa de calor
+    // Pendiente local en el centro de la franja (se usa para el heatmap Y para el overlay)
     const slope = Math.abs(fp(xm));
-    const color = slopeToColor(slope, S.mat.minSlope);
+    const slopeDeg = Math.atan(slope) * 180 / Math.PI;
 
     const segLen = Math.sqrt(dx*dx + (yb-ya)*(yb-ya));
     const angleRad = Math.atan2(yb-ya, dx);
     const angleDeg = angleRad * (180 / Math.PI);
 
-    // ── Franjas de la cubierta (Dentro del bucle for de tu función build3DRoof) ──
+    // ── Franja base de la cubierta ──
     const strip = document.createElement('a-entity');
-    
     strip.setAttribute('geometry', `primitive:box; width:${segLen.toFixed(3)}; height:0.05; depth:${ROOF_DEPTH}`);
-    
-    // MODIFICACIÓN: Inyectamos dinámicamente las propiedades visuales del material seleccionado
-    // Si es vidrio, se activa transparent:true y opacity:0.4 para ver el cielo.
-    strip.setAttribute('material', `
-      color: ${color}; 
-      roughness: ${S.mat.roughness}; 
-      metalness: ${S.mat.metalness}; 
-      opacity: ${S.mat.opacity}; 
-      transparent: ${S.mat.transparent};
-      shader: standard; 
-      side: double
-    `);
-    
+
+    // MODO DUAL según si la lluvia 3D está activa:
+    //  - Lluvia ON  → mapa de calor de pendiente (rojo=estanca, verde=drena), modo "diagnóstico"
+    //  - Lluvia OFF → color real aproximado del material elegido, modo "render arquitectónico"
+    //    (lo que el grupo ve normalmente al recorrer su propio pabellón)
+    const stripColor = rain3DActive
+      ? slopeToColor(slope, S.mat.minSlope)
+      : (MAT_COLOR_HEX[S.mat.id] || '#C9C2B4');
+
+    strip.setAttribute('material', `color:${stripColor}; roughness:${S.mat.roughness}; metalness:${S.mat.metalness}; opacity:${S.mat.opacity}; transparent:${S.mat.transparent}; shader:standard; side:double`);
+
     strip.setAttribute('rotation', `0 0 ${angleDeg.toFixed(2)}`);
     strip.setAttribute('position', `${xm.toFixed(3)} ${ym.toFixed(3)} 0`);
     
@@ -1311,7 +1464,6 @@ function build3DRoof() {
     // Se monta SOBRE la franja base, sin reemplazarla ni alterar su color.
     // Solo aparece donde la pendiente real (en grados) es menor al umbral
     // de drenaje del proyecto (CONSTRAINTS.slopeMin, por defecto 4°).
-    const slopeDeg = Math.atan(slope) * 180 / Math.PI;
     if (slopeDeg < CONSTRAINTS.slopeMin) {
       // Intensidad de la alerta: cuanto más lejos del mínimo, más opaco el rojo (0.25 a 0.65)
       const deficit = (CONSTRAINTS.slopeMin - slopeDeg) / CONSTRAINTS.slopeMin; // 0..1
@@ -1320,13 +1472,7 @@ function build3DRoof() {
       const overlay = document.createElement('a-entity');
       overlay.classList.add('stagnation-overlay'); // permite togglear visibilidad por JS
       overlay.setAttribute('geometry', `primitive:box; width:${segLen.toFixed(3)}; height:0.06; depth:${ROOF_DEPTH}`);
-      overlay.setAttribute('material', `
-        color: #E74C3C;
-        opacity: ${overlayOpacity};
-        transparent: true;
-        shader: flat;
-        side: double
-      `);
+      overlay.setAttribute('material', `color:#E74C3C; opacity:${overlayOpacity}; transparent:true; shader:flat; side:double`);
       overlay.setAttribute('rotation', `0 0 ${angleDeg.toFixed(2)}`);
       // se eleva ligeramente (0.03m) por encima de la franja base para evitar z-fighting
       overlay.setAttribute('position', `${xm.toFixed(3)} ${(ym+0.03).toFixed(3)} 0`);
@@ -1467,6 +1613,11 @@ function toggleRain3D(forceState) {
   // mostrar/ocultar overlays rojos de estancamiento sobre la cubierta
   document.querySelectorAll('.stagnation-overlay').forEach(el => el.setAttribute('visible', rain3DActive));
 
+  // El color de las franjas del techo depende de rain3DActive (heatmap vs.
+  // material real), así que reconstruimos la cubierta para que el cambio
+  // se vea al instante, sin esperar a la próxima entrada al modo 3D.
+  build3DRoof();
+
   const btn = document.getElementById('btn-toggle-rain-3d');
   if (btn) btn.textContent = rain3DActive ? '🌧️ Detener lluvia' : '🌧️ Simular lluvia en 3D';
 }
@@ -1526,6 +1677,7 @@ function exit3D() {
   document.getElementById('clearance-warning').classList.remove('active');
   // apagamos la lluvia al salir para no seguir animando partículas fuera de pantalla
   toggleRain3D(false);
+
 }/* ==========================================================================
    MÓDULO DE OPTIMIZACIÓN FINAL — BÚSQUEDA POR FUERZA BRUTA
    ========================================================================== */
@@ -1582,32 +1734,38 @@ function bruteForceOptimum() {
   return best;
 }
 
+/**
+ * Ejecuta la comparación contra el óptimo teórico usando el diseño
+ * CONGELADO en S.lockedDesign (snapshot tomado en registrarDiseño()),
+ * nunca el estado en vivo de los sliders. Esto evita que el alumno
+ * pueda seguir ajustando a/b/c después de "registrar" y ver cómo
+ * cambia la comparación — el diseño que se compara es el que se guardó.
+ */
 function runOptimization() {
+  if (!S.lockedDesign) return; // salvaguarda: nunca debería llamarse sin un diseño registrado
+
+  const locked = S.lockedDesign;
   const optimal = bruteForceOptimum();
-  const { x0, x1 } = getRange();
-  const userArea = numInteg(x0, x1);
-  const userHmax = Math.max(0, f(getVx()));
-  const userAncho = x1 - x0;
+
+  const resultsContainer = document.getElementById('optim-results');
+  if (!resultsContainer) return;
 
   if (!optimal) {
-    document.getElementById('optim-results').innerHTML = `
+    resultsContainer.innerHTML = `
       <div class="edu-box" style="border-left-color:var(--alert-err)">
-        No se encontró un óptimo dentro del espacio de búsqueda con las restricciones actuales del material. Probá con un material de menor pendiente mínima.
+        No se encontró un óptimo dentro del espacio de búsqueda con las restricciones actuales del material. Probá con un material de menor pendiente mínima en tu próximo diseño.
       </div>`;
     return;
   }
 
-  const gap = ((optimal.area - userArea) / optimal.area * 100);
-  const gapAbs = Math.abs(gap).toFixed(1);
+  const gap = Math.abs((optimal.area - locked.area) / optimal.area * 100);
+  const gapAbs = gap.toFixed(1);
   let gapMsg, gapColor, gapBg;
   if (gap <= 2) { gapMsg = `¡Excelente! Tu diseño está a solo ${gapAbs}% del óptimo teórico.`; gapColor = '#1A7F5A'; gapBg = '#E8F8F2'; }
   else if (gap <= 15) { gapMsg = `Buen diseño — estás ${gapAbs}% por debajo del máximo teórico posible.`; gapColor = '#B8860B'; gapBg = '#FEF9E7'; }
   else { gapMsg = `Hay margen de mejora: tu área es ${gapAbs}% menor que el óptimo teórico.`; gapColor = '#B03A2E'; gapBg = '#FDEDEC'; }
 
-  // Se corrigió el uso de $('formula-badge') por el método nativo
-  const formulaBadgeText = document.getElementById('formula-badge') ? document.getElementById('formula-badge').textContent : 'y = ax² + bx + c';
-
-  document.getElementById('optim-results').innerHTML = `
+  resultsContainer.innerHTML = `
     <div class="optim-gap-banner" style="background:${gapBg};color:${gapColor}">${gapMsg}</div>
     <div class="optim-compare">
       <div class="optim-card theo">
@@ -1618,71 +1776,295 @@ function runOptimization() {
         <div class="optim-stat"><span class="optim-stat-lbl">Ancho</span><span class="optim-stat-val">${fmt(optimal.ancho, 2)} m</span></div>
       </div>
       <div class="optim-card user">
-        <div class="optim-card-head"><span class="optim-dot user"></span><span class="optim-card-title">Tu diseño actual</span></div>
-        <div class="optim-stat"><span class="optim-stat-lbl">Función</span><span class="optim-stat-val">${formulaBadgeText}</span></div>
-        <div class="optim-stat"><span class="optim-stat-lbl">Área (∫f dx)</span><span class="optim-stat-val">${fmt(userArea, 2)} m²</span></div>
-        <div class="optim-stat"><span class="optim-stat-lbl">Altura máx.</span><span class="optim-stat-val">${fmt(userHmax, 2)} m</span></div>
-        <div class="optim-stat"><span class="optim-stat-lbl">Ancho</span><span class="optim-stat-val">${fmt(userAncho, 2)} m</span></div>
+        <div class="optim-card-head"><span class="optim-dot user"></span><span class="optim-card-title">Tu diseño registrado</span></div>
+        <div class="optim-stat"><span class="optim-stat-lbl">Función</span><span class="optim-stat-val">${locked.funcionStr}</span></div>
+        <div class="optim-stat"><span class="optim-stat-lbl">Área (∫f dx)</span><span class="optim-stat-val">${fmt(locked.area, 2)} m²</span></div>
+        <div class="optim-stat"><span class="optim-stat-lbl">Altura máx.</span><span class="optim-stat-val">${fmt(locked.hmax, 2)} m</span></div>
+        <div class="optim-stat"><span class="optim-stat-lbl">Ancho</span><span class="optim-stat-val">${fmt(locked.ancho, 2)} m</span></div>
       </div>
     </div>
-    <div class="canvas-wrap" style="height:220px;">
-      <canvas id="cv-optim" width="700" height="220"></canvas>
+    <div class="canvas-wrap" style="height:260px;">
+      <canvas id="cv-optim" width="700" height="260"></canvas>
     </div>`;
 
-  drawOptimChart(optimal, userArea, userHmax, userAncho);
+  // ── FIX: el canvas recién se creó vía innerHTML, pero en este momento
+  // el usuario casi seguro NO está parado en la pestaña Evaluación (panel-4)
+  // — está viendo el overlay de revelación. Un <canvas> dentro de un
+  // ancestro con display:none no tiene layout real todavía, y dibujar
+  // sobre él en ese instante puede no pintar nada (o pintarse "perdido").
+  // Por eso guardamos los datos en una variable global y NO dibujamos
+  // acá: el dibujo real ocurre en drawOptimChartIfVisible(), que se llama
+  // cuando el panel se activa de verdad (ver setTab).
+  lastOptimComparison = { optimal, locked };
+  drawOptimChartIfVisible();
+
+  return { optimal, gap };
 }
 
-function drawOptimChart(optimal, userArea, userHmax, userAncho) {
+// Guarda la última comparación calculada, para poder re-dibujarla
+// cada vez que la pestaña Evaluación se vuelve a activar (setTab(4)),
+// sin tener que recalcular bruteForceOptimum() de nuevo.
+let lastOptimComparison = null;
+
+/**
+ * Dibuja el gráfico comparativo solo si su panel contenedor está
+ * realmente visible en este momento. Si no lo está, no hace nada —
+ * quien active la pestaña más tarde (setTab) se encarga de llamarla.
+ */
+function drawOptimChartIfVisible() {
+  if (!lastOptimComparison) return;
+  const panel = document.getElementById('panel-4');
+  if (!panel || !panel.classList.contains('active')) return;
+  // requestAnimationFrame asegura que el navegador ya resolvió el reflow
+  // (display:flex real, layout del canvas) antes de medir/dibujar —
+  // sin esto, en algunos navegadores el primer dibujo justo después de
+  // togglear .active puede ocurrir antes de que el canvas tenga tamaño real.
+  requestAnimationFrame(() => {
+    drawOptimChart(lastOptimComparison.optimal, lastOptimComparison.locked);
+  });
+}
+
+/**
+ * Gráfico comparativo "arquitectónico": dos cubiertas superpuestas
+ * (dorado = óptimo, azul = diseño del grupo) sobre un mismo terreno,
+ * con vértice, altura máxima y ancho anotados para cada una — pensado
+ * para leerse como una comparación de dos proyectos, no como dos
+ * funciones matemáticas abstractas.
+ */
+function drawOptimChart(optimal, locked) {
   const cv = document.getElementById('cv-optim');
   if (!cv) return;
   const ctx = cv.getContext('2d');
-  const W = cv.width, H = cv.height, PAD = 44;
+  const W = cv.width, H = cv.height;
+  const PAD_L = 56, PAD_R = 30, PAD_T = 34, PAD_B = 44;
+
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#F7F9FC'; ctx.fillRect(0, 0, W, H);
 
-  const maxArea = Math.max(optimal.area, userArea) * 1.25;
-  const maxH = Math.max(optimal.vy, userHmax) * 1.25;
-  const tX = v => PAD + (v / maxArea) * (W - 2 * PAD);
-  const tY = v => H - PAD - (v / maxH) * (H - 2 * PAD);
+  const userX0 = locked.x0, userX1 = locked.x1;
+  const xMin = Math.min(userX0, optimal.x0) - 1;
+  const xMax = Math.max(userX1, optimal.x1) + 1;
+  const yMax = Math.max(optimal.vy, locked.hmax, 4) * 1.25;
 
-  // grid
-  ctx.strokeStyle = 'rgba(30,80,120,0.08)'; ctx.lineWidth = 1;
-  for (let i = 0; i <= 5; i++) {
-    const gx = PAD + i * (W - 2 * PAD) / 5;
-    ctx.beginPath(); ctx.moveTo(gx, PAD); ctx.lineTo(gx, H - PAD); ctx.stroke();
-    const gy = PAD + i * (H - 2 * PAD) / 5;
-    ctx.beginPath(); ctx.moveTo(PAD, gy); ctx.lineTo(W - PAD, gy); ctx.stroke();
+  const tX = x => PAD_L + ((x - xMin) / (xMax - xMin)) * (W - PAD_L - PAD_R);
+  const tY = y => H - PAD_B - (y / yMax) * (H - PAD_T - PAD_B);
+  const groundY = H - PAD_B;
+
+  // grilla sutil de referencia (cada 1m en X, cada 1m en Y)
+  ctx.strokeStyle = 'rgba(30,80,120,0.06)'; ctx.lineWidth = 1;
+  for (let gx = Math.ceil(xMin); gx <= Math.floor(xMax); gx++) {
+    ctx.beginPath(); ctx.moveTo(tX(gx), PAD_T); ctx.lineTo(tX(gx), groundY); ctx.stroke();
   }
-  // axes
-  ctx.strokeStyle = 'rgba(30,80,120,0.3)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(PAD, H - PAD); ctx.lineTo(W - PAD, H - PAD); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(PAD, PAD); ctx.lineTo(PAD, H - PAD); ctx.stroke();
+  for (let gy = 1; gy <= Math.floor(yMax); gy++) {
+    ctx.beginPath(); ctx.moveTo(PAD_L, tY(gy)); ctx.lineTo(W - PAD_R, tY(gy)); ctx.stroke();
+  }
 
-  ctx.fillStyle = 'rgba(30,80,120,0.5)'; ctx.font = '10px Space Mono,monospace';
-  ctx.textAlign = 'center'; ctx.fillText('Área bajo la curva (m²) →', W / 2, H - 10);
+  // suelo
+  ctx.strokeStyle = 'rgba(30,80,120,0.4)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(PAD_L, groundY); ctx.lineTo(W - PAD_R, groundY); ctx.stroke();
+  ctx.fillStyle = 'rgba(30,80,120,0.5)'; ctx.font = '10px Space Mono,monospace'; ctx.textAlign = 'left';
+  ctx.fillText('0 m', PAD_L - 4, groundY + 14);
+
+  /**
+   * Dibuja una cubierta (relleno + contorno + vértice + anotación de
+   * altura y ancho) para una parábola (a,b,c) entre sus raíces x0,x1.
+   */
+  function drawRoof(a, b, c, x0, x1, colorRGB, label, dashGround) {
+    const vx = -b / (2 * a);
+    const vy = a * vx * vx + b * vx + c;
+
+    // relleno bajo la cubierta
+    ctx.beginPath();
+    ctx.moveTo(tX(x0), groundY);
+    for (let i = 0; i <= 150; i++) {
+      const x = x0 + i * (x1 - x0) / 150;
+      ctx.lineTo(tX(x), tY(Math.max(0, a * x * x + b * x + c)));
+    }
+    ctx.lineTo(tX(x1), groundY);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(${colorRGB},0.12)`;
+    ctx.fill();
+
+    // contorno de la cubierta
+    ctx.strokeStyle = `rgba(${colorRGB},1)`; ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i <= 150; i++) {
+      const x = x0 + i * (x1 - x0) / 150;
+      const y = a * x * x + b * x + c;
+      const py = tY(Math.max(0, y));
+      i === 0 ? ctx.moveTo(tX(x), py) : ctx.lineTo(tX(x), py);
+    }
+    ctx.stroke();
+
+    // marcador de vértice
+    ctx.fillStyle = `rgba(${colorRGB},1)`;
+    ctx.beginPath(); ctx.arc(tX(vx), tY(vy), 5, 0, 2 * Math.PI); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // línea de altura máxima (vertical punteada desde el vértice al piso)
+    ctx.strokeStyle = `rgba(${colorRGB},0.45)`; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(tX(vx), tY(vy)); ctx.lineTo(tX(vx), groundY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // ancho total (línea punteada horizontal bajo el piso, desviada para no pisar la del otro diseño)
+    const widthLineY = dashGround;
+    ctx.strokeStyle = `rgba(${colorRGB},0.5)`; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(tX(x0), widthLineY); ctx.lineTo(tX(x1), widthLineY); ctx.stroke();
+    ctx.fillStyle = `rgba(${colorRGB},0.9)`; ctx.font = '9px Space Mono,monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`${fmt(x1 - x0, 1)} m`, tX((x0 + x1) / 2), widthLineY + 11);
+
+    // etiqueta de altura máxima junto al vértice
+    ctx.font = '10px Space Mono,monospace'; ctx.textAlign = 'left';
+    ctx.fillText(`${fmt(vy, 1)} m`, tX(vx) + 8, tY(vy) - 6);
+
+    // etiqueta del diseño (nombre)
+    ctx.font = 'bold 11px Space Grotesk,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(label, tX((x0 + x1) / 2), tY(0) - (yMax * 0.04) - (H - PAD_T - PAD_B) * 0.02);
+  }
+
+  // Óptimo (dorado) atrás, diseño del grupo (azul petróleo) adelante,
+  // para que la cubierta del estudiante quede siempre legible por encima.
+  drawRoof(optimal.a, optimal.b, optimal.c, optimal.x0, optimal.x1, '212,175,55', 'Diseño óptimo', groundY + 26);
+  drawRoof(locked.a, locked.b, locked.c, userX0, userX1, '46,134,171', 'Tu diseño', groundY + 40);
+
+  // leyenda superior
+  ctx.font = '12px Space Grotesk,sans-serif'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#92400E'; ctx.fillText('● Diseño óptimo', PAD_L, 16);
+  ctx.fillStyle = '#1A5276'; ctx.fillText('● Tu diseño', PAD_L + 130, 16);
+
+  // ejes
+  ctx.fillStyle = 'rgba(30,80,120,0.45)'; ctx.font = '10px Space Mono,monospace'; ctx.textAlign = 'center';
+  ctx.fillText('Ancho de la estructura (m) →', W / 2, H - 6);
   ctx.save(); ctx.translate(14, H / 2); ctx.rotate(-Math.PI / 2);
-  ctx.fillText('Altura máxima (m) →', 0, 0); ctx.restore();
-
-  // connecting line (gap visual)
-  ctx.strokeStyle = 'rgba(176,58,46,0.4)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
-  ctx.beginPath(); ctx.moveTo(tX(optimal.area), tY(optimal.vy)); ctx.lineTo(tX(userArea), tY(userHmax)); ctx.stroke();
-  ctx.setLineDash([]);
-
-  // optimal point
-  ctx.fillStyle = '#D4AF37';
-  ctx.shadowColor = '#D4AF37'; ctx.shadowBlur = 14;
-  ctx.beginPath(); ctx.arc(tX(optimal.area), tY(optimal.vy), 8, 0, 2 * Math.PI); ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#92400E'; ctx.font = '11px Space Grotesk,sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('Óptimo teórico', tX(optimal.area) + 12, tY(optimal.vy) - 8);
-
-  // user point
-  ctx.fillStyle = '#2E86AB';
-  ctx.beginPath(); ctx.arc(tX(userArea), tY(userHmax), 8, 0, 2 * Math.PI); ctx.fill();
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-  ctx.fillStyle = '#1A5276'; ctx.font = '11px Space Grotesk,sans-serif';
-  ctx.fillText('Tu diseño', tX(userArea) + 12, tY(userHmax) + 16);
+  ctx.fillText('Altura (m) →', 0, 0); ctx.restore();
 }
+
+/* ═══════════════════════════════════════════════════════
+   FASE 3 — SECUENCIA DE REVELACIÓN ("CAJA NEGRA" DEL JUEGO)
+   ───────────────────────────────────────────────────────
+   Se dispara UNA SOLA VEZ, inmediatamente después de que
+   registrarDiseño() confirma el guardado en Supabase. Antes de
+   este punto, S.lockedDesign es null y bruteForceOptimum() nunca
+   se ejecutó: el alumno no tuvo ninguna vía en la interfaz para
+   ver el óptimo antes de comprometerse con su diseño.
+═══════════════════════════════════════════════════════ */
+const REVEAL_MESSAGES = [
+  'Analizando estructura…',
+  'Calculando resistencia…',
+  'Comparando con miles de diseños posibles…',
+  'Generando evaluación final…',
+];
+
+function getMedal(total) {
+  if (total >= 400) return { icon: '🥇', label: 'Arquitecto experto' };
+  if (total >= 280) return { icon: '🥈', label: 'Buen diseñador' };
+  return { icon: '🥉', label: 'En progreso' };
+}
+
+/**
+ * Corre la animación de "caja negra" (mensajes + barra de progreso),
+ * y al terminar recién ahí ejecuta bruteForceOptimum() vía runOptimization()
+ * y revela el resultado final con medalla. Esta es la ÚNICA función que
+ * dispara el cálculo del óptimo en todo el flujo del juego.
+ */
+function runRevealSequence() {
+  const overlay = document.getElementById('reveal-overlay');
+  const stage = document.getElementById('reveal-stage');
+  if (!overlay || !stage) return;
+
+  overlay.classList.add('active');
+
+  stage.innerHTML = `
+    <div class="reveal-loading">
+      <div class="reveal-spinner"></div>
+      <div class="reveal-msg" id="reveal-msg">${REVEAL_MESSAGES[0]}</div>
+      <div class="reveal-progress-track"><div class="reveal-progress-fill" id="reveal-progress-fill"></div></div>
+    </div>`;
+
+  const msgEl = document.getElementById('reveal-msg');
+  const fillEl = document.getElementById('reveal-progress-fill');
+  const stepMs = 650;
+
+  REVEAL_MESSAGES.forEach((msg, i) => {
+    setTimeout(() => {
+      if (msgEl) msgEl.textContent = msg;
+      if (fillEl) fillEl.style.width = `${((i + 1) / REVEAL_MESSAGES.length) * 100}%`;
+    }, i * stepMs);
+  });
+
+  setTimeout(() => {
+    // Acá, y solo acá, se calcula el óptimo por primera vez en todo el flujo.
+    const result = runOptimization();
+    revealFinalResult(result);
+  }, REVEAL_MESSAGES.length * stepMs + 300);
+}
+
+/**
+ * Pinta la pantalla final de resultado dentro del overlay: ficha del
+ * diseño del grupo, ficha del óptimo, diferencia porcentual, medalla,
+ * y el gráfico comparativo (ya dibujado por runOptimization → drawOptimChart
+ * sobre #cv-optim, que vive fuera del overlay en la pestaña Evaluación).
+ */
+
+function revealFinalResult(result) {
+  const stage = document.getElementById('reveal-stage');
+  if (!stage) return;
+
+  const locked = S.lockedDesign;
+  const medal = getMedal(S.total);
+
+  if (!result) {
+    stage.innerHTML = `
+      <div class="reveal-result">
+        <div class="reveal-trophy">${medal.icon}</div>
+        <div class="reveal-title">¡Diseño registrado!</div>
+        <div class="reveal-medal-label">${medal.label}</div>
+        <p style="color:var(--muted);font-size:13px;margin-top:8px;">No se pudo calcular el óptimo teórico con las restricciones de este material, pero tu diseño ya quedó guardado en el ranking.</p>
+        <button class="btn-reveal-close" onclick="closeRevealOverlay()">Ver mi diseño en el ranking →</button>
+      </div>`;
+    return;
+  }
+
+  const { gap } = result;
+  const gapAbs = gap.toFixed(1);
+
+  stage.innerHTML = `
+    <div class="reveal-result">
+      <div class="reveal-trophy">${medal.icon}</div>
+      <div class="reveal-title">RESULTADO DEL DESAFÍO</div>
+      <div class="reveal-medal-label">${medal.label} · ${S.total} / 500 pts</div>
+
+      <div class="reveal-diff-banner">Estás a <b>${gapAbs}%</b> del diseño ideal</div>
+
+      <div class="reveal-compare">
+        <div class="reveal-card user">
+          <div class="reveal-card-title">Tu diseño</div>
+          <div class="reveal-stat" style="font-family: monospace; font-size: 14px; color: var(--primary); font-weight: bold;">${locked.funcionStr}</div>
+          <div class="reveal-stat">Área: <b>${fmt(locked.area,2)} m²</b></div>
+          <div class="reveal-stat">Altura: <b>${fmt(locked.hmax,2)} m</b></div>
+          <div class="reveal-stat">Ancho: <b>${fmt(locked.ancho,2)} m</b></div>
+        </div>
+        <div class="reveal-card theo">
+          <div class="reveal-card-title">Óptimo teórico</div>
+          <div class="reveal-stat" style="font-family: monospace; font-size: 14px; color: #10B981; font-weight: bold;">y=${fmt(result.optimal.a,2)}x²${result.optimal.b>=0?'+':''}${fmt(result.optimal.b,2)}x${result.optimal.c>=0?'+':''}${fmt(result.optimal.c,1)}</div>
+          <div class="reveal-stat">Área: <b>${fmt(result.optimal.area,2)} m²</b></div>
+          <div class="reveal-stat">Altura: <b>${fmt(result.optimal.vy,2)} m</b></div>
+          <div class="reveal-stat">Ancho: <b>${fmt(result.optimal.ancho,2)} m</b></div>
+        </div>
+      </div>
+
+      <button class="btn-reveal-close" onclick="closeRevealOverlay()">Ir al ranking general →</button>
+    </div>`;
+}
+
+function closeRevealOverlay() {
+  const overlay = document.getElementById('reveal-overlay');
+  if (overlay) overlay.classList.remove('active');
+  
+  // 🟢 En lugar de volver a Evaluación (setTab(4)), salta directo al Ranking (setTab(5))
+  setTab(5); 
+}
+
 
 // Funciones globales para controlar el catálogo técnico
 function openCatalog() {
@@ -1704,6 +2086,7 @@ window.addEventListener('click', (event) => {
 });
 
 function selectMaterialFromCatalog(idMaterial) {
+  if (S.registered) { closeCatalog(); return; } // material congelado tras el registro
   // 1. Buscamos el objeto del material dentro de tu array global MATS
   const materialEncontrado = MATS.find(m => m.id === idMaterial);
   
@@ -1735,5 +2118,4 @@ function selectMaterialFromCatalog(idMaterial) {
 // No dependen de startApp() porque el canvas ya existe en el DOM desde el index.html
 // (aunque su panel esté oculto hasta que el usuario complete la pantalla de inicio).
 initMathCanvasDrag();
-
-
+initDerivDrag();
